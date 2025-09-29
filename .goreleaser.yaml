@@ -1,0 +1,70 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: k10s
+    main: ./cmd/k10s
+    binary: k10s
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X {{ .ModulePath }}/internal/core.Version={{ .Tag }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [ -trimpath ]
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: 'checksums.txt'
+signs:
+  - artifacts: checksum
+
+brews:
+  - name: k10s
+    description: "A pretty, AI/ML-friendly Kubernetes TUI"
+    homepage: "https://github.com/{{ .Env.GH }}/k10s"
+    tap:
+      owner: "{{ .Env.GH }}"
+      name: homebrew-tap
+    commit_author:
+      name: "{{ .Env.GH }}"
+      email: "me@users.noreply.github.com"
+
+scoops:
+  - name: k10s
+    description: "A pretty, AI/ML-friendly Kubernetes TUI"
+    homepage: "https://github.com/{{ .Env.GH }}/k10s"
+    bucket:
+      owner: "{{ .Env.GH }}"
+      name: scoop-bucket
+    commit_author:
+      name: "{{ .Env.GH }}"
+      email: "me@users.noreply.github.com"
+
+nfpms:
+  - package_name: k10s
+    formats: [deb, rpm]
+    homepage: "https://github.com/{{ .Env.GH }}/k10s"
+    maintainer: "{{ .Env.GH }} <me@users.noreply.github.com>"
+    description: "A pretty, AI/ML-friendly Kubernetes TUI"
+    license: Apache-2.0
+
+sboms:
+  - artifacts: archive
+
+changelog:
+  use: git
+  filters:
+    exclude:
+      - '^chore:'
+      - '^docs:'
+      - '^test:'
