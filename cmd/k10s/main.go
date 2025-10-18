@@ -1,39 +1,46 @@
-// cmd/k10s/main.go
 package main
 
 import (
+	"fmt"
 	"log"
+	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/shvbsle/k10s/internal/config"
+	"github.com/shvbsle/k10s/internal/k8s"
+	"github.com/shvbsle/k10s/internal/tui"
 )
 
-type model struct {
-	ready bool
-}
-
-func (m model) Init() tea.Cmd { return nil }
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg.(type) {
-	case tea.KeyMsg:
-		return m, tea.Quit
-	case tea.WindowSizeMsg:
-		m.ready = true
-		return m, nil
-	default:
-		return m, nil
-	}
-}
-
-func (m model) View() string {
-	if !m.ready {
-		return "k10s: initializing...\n"
-	}
-	return "k10s: coming soon (press any key to exit)\n"
-}
-
 func main() {
-	if err := tea.NewProgram(model{}).Start(); err != nil {
+	// Create default config file if it doesn't exist
+	if err := config.CreateDefaultConfig(); err != nil {
+		log.Printf("Warning: could not create default config: %v", err)
+	}
+
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Initialize Kubernetes client
+	client, err := k8s.NewClient()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to initialize Kubernetes client: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Make sure you have a valid kubeconfig file or are running in a cluster.\n")
+		os.Exit(1)
+	}
+
+	// Initialize TUI
+	m := tui.New(cfg, client)
+
+	p := tea.NewProgram(
+		m,
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+	)
+
+	if _, err := p.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
