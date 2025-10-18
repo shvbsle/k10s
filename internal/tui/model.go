@@ -181,22 +181,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "j", "down":
 				m.table.MoveDown(1)
+				return m, nil
 			case "k", "up":
 				m.table.MoveUp(1)
+				return m, nil
 			case "g":
 				m.table.GotoTop()
+				return m, nil
 			case "G":
 				m.table.GotoBottom()
+				return m, nil
 			case "h", "left", "pgup":
 				if m.paginator.Page > 0 {
 					m.paginator.PrevPage()
 					m.updateTableData()
 				}
+				return m, nil
 			case "l", "right", "pgdown":
 				if m.paginator.Page < m.paginator.TotalPages-1 {
 					m.paginator.NextPage()
 					m.updateTableData()
 				}
+				return m, nil
 			case "ctrl+c":
 				return m, tea.Quit
 			}
