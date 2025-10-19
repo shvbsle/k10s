@@ -2,9 +2,12 @@ BINARY:=k10s
 PKG:=./...
 GO:=go
 
-.PHONY: all build run test lint fmt vet snapshot release
+.PHONY: all build run test lint fmt vet snapshot release version
 
 all: build
+
+version:
+	@cat VERSION
 
 build:
 	$(GO) build -trimpath -ldflags="-s -w -X $(MOD)/internal/core.Version=$$(git describe --tags --always --dirty)" -o bin/$(BINARY) ./cmd/k10s

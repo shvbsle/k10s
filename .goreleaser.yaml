@@ -25,41 +25,38 @@ archives:
 
 checksum:
   name_template: 'checksums.txt'
-signs:
-  - artifacts: checksum
 
 brews:
-  - name: k10s
-    description: "A pretty, AI/ML-friendly Kubernetes TUI"
-    homepage: "https://github.com/{{ .Env.GH }}/k10s"
-    tap:
-      owner: "{{ .Env.GH }}"
+  - repository:
+      owner: shvbsle
       name: homebrew-tap
+    name: k10s
+    description: "A modern terminal UI for Kubernetes"
+    homepage: "https://github.com/shvbsle/k10s"
+    license: "Apache-2.0"
     commit_author:
-      name: "{{ .Env.GH }}"
-      email: "me@users.noreply.github.com"
+      name: goreleaserbot
+      email: bot@goreleaser.com
 
 scoops:
-  - name: k10s
-    description: "A pretty, AI/ML-friendly Kubernetes TUI"
-    homepage: "https://github.com/{{ .Env.GH }}/k10s"
-    bucket:
-      owner: "{{ .Env.GH }}"
+  - repository:
+      owner: shvbsle
       name: scoop-bucket
+    name: k10s
+    description: "A modern terminal UI for Kubernetes"
+    homepage: "https://github.com/shvbsle/k10s"
+    license: "Apache-2.0"
     commit_author:
-      name: "{{ .Env.GH }}"
-      email: "me@users.noreply.github.com"
+      name: goreleaserbot
+      email: bot@goreleaser.com
 
 nfpms:
   - package_name: k10s
     formats: [deb, rpm]
-    homepage: "https://github.com/{{ .Env.GH }}/k10s"
-    maintainer: "{{ .Env.GH }} <me@users.noreply.github.com>"
-    description: "A pretty, AI/ML-friendly Kubernetes TUI"
+    homepage: "https://github.com/shvbsle/k10s"
+    maintainer: "shvbsle <me@users.noreply.github.com>"
+    description: "A modern terminal UI for Kubernetes"
     license: Apache-2.0
-
-sboms:
-  - artifacts: archive
 
 changelog:
   use: git
