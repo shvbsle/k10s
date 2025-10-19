@@ -1,4 +1,4 @@
-# k10s (kittens)
+# k10s
 
 🙀 A modern, pretty TUI for Kubernetes, tuned for AI/ML clusters. 
 
