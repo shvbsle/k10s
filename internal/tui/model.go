@@ -95,13 +95,15 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 	ti.CharLimit = 100
 	ti.Width = 50
 
+	// Initial columns for pods (default resource type)
+	titles := getColumnTitles(k8s.ResourcePods)
 	columns := []table.Column{
-		{Title: "Name", Width: 35},
-		{Title: "Namespace", Width: 15},
-		{Title: "Node", Width: 20},
-		{Title: "Status", Width: 12},
-		{Title: "Age", Width: 8},
-		{Title: "IP", Width: 15},
+		{Title: titles[0], Width: 35},
+		{Title: titles[1], Width: 15},
+		{Title: titles[2], Width: 20},
+		{Title: titles[3], Width: 12},
+		{Title: titles[4], Width: 8},
+		{Title: titles[5], Width: 15},
 	}
 
 	t := table.New(
@@ -132,7 +134,7 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 		clusterInfo, _ = client.GetClusterInfo()
 	}
 
-	suggestions := []string{"pods", "nodes", "namespaces", "ns", "quit", "q", "reconnect", "r"}
+	suggestions := []string{"pods", "nodes", "namespaces", "services", "ns", "quit", "q", "reconnect", "r"}
 
 	keys := keyMap{
 		Up: key.NewBinding(
@@ -235,6 +237,9 @@ func (m Model) loadResourcesCmd(resType k8s.ResourceType) tea.Cmd {
 		case k8s.ResourceNamespaces:
 			log.Printf("TUI: Loading namespaces")
 			resources, err = m.k8sClient.ListNamespaces()
+		case k8s.ResourceServices:
+			log.Printf("TUI: Loading services from namespace: %s", ns)
+			resources, err = m.k8sClient.ListServices(m.currentNamespace)
 		default:
 			log.Printf("TUI: Loading pods (default) from namespace: %s", ns)
 			resources, err = m.k8sClient.ListPods(m.currentNamespace)
@@ -286,21 +291,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			totalWidth = 90
 		}
 
-		nameWidth := int(float64(totalWidth) * 0.30)
-		nsWidth := int(float64(totalWidth) * 0.13)
-		nodeWidth := int(float64(totalWidth) * 0.18)
-		statusWidth := int(float64(totalWidth) * 0.12)
-		ageWidth := int(float64(totalWidth) * 0.08)
-		ipWidth := totalWidth - nameWidth - nsWidth - nodeWidth - statusWidth - ageWidth
-
-		m.table.SetColumns([]table.Column{
-			{Title: "Name", Width: nameWidth},
-			{Title: "Namespace", Width: nsWidth},
-			{Title: "Node", Width: nodeWidth},
-			{Title: "Status", Width: statusWidth},
-			{Title: "Age", Width: ageWidth},
-			{Title: "IP", Width: ipWidth},
-		})
+		m.updateColumns(totalWidth)
 
 		return m, func() tea.Msg {
 			return tea.ClearScreen()
@@ -309,6 +300,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resourcesLoadedMsg:
 		m.resources = msg.resources
 		m.resourceType = msg.resType
+		// Update column headers based on new resource type
+		if m.width > 0 {
+			totalWidth := m.width - 6
+			if totalWidth < 90 {
+				totalWidth = 90
+			}
+			m.updateColumns(totalWidth)
+		}
 		m.updateTableData()
 		return m, nil
 
@@ -328,6 +327,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc":
 				m.commandInput.Reset()
 				m.viewMode = ViewModeNormal
+				return m, nil
+			case "tab":
+				// Autocomplete with the first matching suggestion
+				filtered := m.getFilteredSuggestions()
+				if len(filtered) > 0 {
+					m.commandInput.SetValue(filtered[0])
+					m.commandInput.SetCursor(len(filtered[0]))
+				}
 				return m, nil
 			default:
 				m.commandInput, cmd = m.commandInput.Update(msg)
@@ -472,6 +479,9 @@ func (m Model) executeCommand(command string) tea.Cmd {
 	case "namespaces", "namespace", "ns":
 		log.Printf("TUI: Loading namespaces")
 		return m.requireConnection(m.loadResourcesCmd(k8s.ResourceNamespaces))
+	case "services", "service", "svc":
+		log.Printf("TUI: Loading services")
+		return m.requireConnection(m.loadResourcesCmd(k8s.ResourceServices))
 	default:
 		log.Printf("TUI: Unknown command: %s", command)
 		return nil
@@ -853,4 +863,41 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// getColumnTitles returns the appropriate column titles based on the resource type.
+func getColumnTitles(resType k8s.ResourceType) []string {
+	switch resType {
+	case k8s.ResourcePods:
+		return []string{"Name", "Namespace", "Node", "Status", "Age", "Pod IP"}
+	case k8s.ResourceNodes:
+		return []string{"Name", "", "", "Status", "Age", "Node IP"}
+	case k8s.ResourceNamespaces:
+		return []string{"Name", "", "", "Status", "Age", ""}
+	case k8s.ResourceServices:
+		return []string{"Name", "Namespace", "", "Type", "Age", "Cluster-IP/Ports"}
+	default:
+		return []string{"Name", "Namespace", "Node", "Status", "Age", "IP"}
+	}
+}
+
+// updateColumns updates the table columns based on the current width and resource type.
+func (m *Model) updateColumns(totalWidth int) {
+	nameWidth := int(float64(totalWidth) * 0.30)
+	nsWidth := int(float64(totalWidth) * 0.13)
+	nodeWidth := int(float64(totalWidth) * 0.18)
+	statusWidth := int(float64(totalWidth) * 0.12)
+	ageWidth := int(float64(totalWidth) * 0.08)
+	ipWidth := totalWidth - nameWidth - nsWidth - nodeWidth - statusWidth - ageWidth
+
+	titles := getColumnTitles(m.resourceType)
+
+	m.table.SetColumns([]table.Column{
+		{Title: titles[0], Width: nameWidth},
+		{Title: titles[1], Width: nsWidth},
+		{Title: titles[2], Width: nodeWidth},
+		{Title: titles[3], Width: statusWidth},
+		{Title: titles[4], Width: ageWidth},
+		{Title: titles[5], Width: ipWidth},
+	})
 }

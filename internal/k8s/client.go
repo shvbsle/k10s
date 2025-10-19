@@ -41,6 +41,8 @@ const (
 	ResourceNodes ResourceType = "nodes"
 	// ResourceNamespaces represents Kubernetes namespaces.
 	ResourceNamespaces ResourceType = "namespaces"
+	// ResourceServices represents Kubernetes services.
+	ResourceServices ResourceType = "services"
 )
 
 // Resource represents a Kubernetes resource with common fields suitable for
@@ -315,6 +317,71 @@ func (c *Client) ListNamespaces() ([]Resource, error) {
 			Status:    status,
 			Age:       formatAge(ns.CreationTimestamp.Time),
 			Extra:     "",
+		}
+	}
+
+	return resources, nil
+}
+
+// ListServices retrieves all services in the specified namespace. If namespace is empty,
+// it returns services from all namespaces. Returns an error if the client is not
+// connected or if the API request fails.
+func (c *Client) ListServices(namespace string) ([]Resource, error) {
+	if !c.isConnected || c.clientset == nil {
+		return nil, fmt.Errorf("not connected to cluster")
+	}
+
+	ctx := context.Background()
+	ns := namespace
+	if ns == "" {
+		ns = metav1.NamespaceAll
+	}
+
+	services, err := c.clientset.CoreV1().Services(ns).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		c.isConnected = false // Mark as disconnected on error
+		return nil, err
+	}
+
+	resources := make([]Resource, len(services.Items))
+	for i, svc := range services.Items {
+		// Service type (ClusterIP, NodePort, LoadBalancer, ExternalName)
+		serviceType := string(svc.Spec.Type)
+
+		// Build port info for Extra column
+		var portInfo string
+		if len(svc.Spec.Ports) > 0 {
+			ports := make([]string, 0, len(svc.Spec.Ports))
+			for _, port := range svc.Spec.Ports {
+				if port.NodePort != 0 {
+					ports = append(ports, fmt.Sprintf("%d:%d/%s", port.Port, port.NodePort, port.Protocol))
+				} else {
+					ports = append(ports, fmt.Sprintf("%d/%s", port.Port, port.Protocol))
+				}
+			}
+			portInfo = ports[0]
+			if len(ports) > 1 {
+				portInfo += fmt.Sprintf("+%d", len(ports)-1)
+			}
+		}
+
+		// Add Cluster IP to port info
+		clusterIP := svc.Spec.ClusterIP
+		if clusterIP != "" && clusterIP != "None" {
+			if portInfo != "" {
+				portInfo = clusterIP + " " + portInfo
+			} else {
+				portInfo = clusterIP
+			}
+		}
+
+		resources[i] = Resource{
+			Name:      svc.Name,
+			Namespace: svc.Namespace,
+			Node:      "",
+			Status:    serviceType,
+			Age:       formatAge(svc.CreationTimestamp.Time),
+			Extra:     portInfo,
 		}
 	}
 
