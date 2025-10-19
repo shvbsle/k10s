@@ -1,29 +1,15 @@
-# k10s (kittens)
-🙀 A modern, scalable TUI for Kubernetes, tuned for AI/ML hyperscaler clusters with 100k+ nodes.
+# k10s
+
+🙀 A modern, pretty TUI for Kubernetes, tuned for AI/ML clusters. 
 
 Built with Go + Bubble Tea.
-
-## Why k10s?
-
-Traditional Kubernetes CLI tools like `kubectl` and `k9s` don't scale well for massive AI hyperscaler clusters:
-
-- **kubectl**: No pagination by default, requires verbose commands for large-scale operations
-- **k9s**: Lacks pagination, making it impossible to navigate through millions of pods efficiently
-
-**k10s** solves these problems with:
-- ✅ Built-in pagination for all resource types
-- ✅ Vim-like keybindings for fast navigation
-- ✅ Optimized for clusters with 100k+ nodes
-- ✅ Beautiful, minimal TUI interface
-- ✅ Configurable page sizes and UI elements
 
 ## Features
 
 - **Paginated Tables**: Browse pods, nodes, and namespaces with configurable page sizes
 - **Vim Keybindings**: Navigate efficiently with `j/k`, `h/l`, `g/G`, and command mode with `:`
 - **Command Mode**: Type `:` to enter command mode, then use commands like `pods`, `nodes`, `ns`, or `quit`
-- **ASCII Logo**: Customizable cat logo displayed in the TUI
-- **Configuration**: Store preferences in `~/.k10s.conf`
+- **Customizable**: Configure page sizes and UI elements via `~/.k10s.conf`
 - **Fast & Lightweight**: Built in Go with minimal dependencies
 
 ## Installation
@@ -99,33 +85,6 @@ logo_end
 - `page_size`: Number of rows to display per page (default: 20)
 - `logo_start`/`logo_end`: Custom ASCII art logo to display
 
-## Architecture
-
-```
-k10s/
-├── cmd/k10s/           # Main application entry point
-│   └── main.go
-├── internal/
-│   ├── config/         # Configuration handling
-│   │   └── config.go
-│   ├── k8s/            # Kubernetes client wrapper
-│   │   ├── client.go
-│   │   └── utils.go
-│   └── tui/            # Terminal UI components
-│       └── model.go    # Bubble Tea model
-├── bin/                # Compiled binaries
-├── Makefile
-├── go.mod
-└── README.md
-```
-
-## Technology Stack
-
-- **[Bubble Tea](https://github.com/charmbracelet/bubbletea)**: TUI framework
-- **[Bubbles](https://github.com/charmbracelet/bubbles)**: TUI components (table, paginator, textinput)
-- **[Lip Gloss](https://github.com/charmbracelet/lipgloss)**: Terminal styling
-- **[client-go](https://github.com/kubernetes/client-go)**: Official Kubernetes Go client
-
 ## Development
 
 ### Prerequisites
@@ -151,26 +110,17 @@ make run
 make test
 ```
 
+### Linting
+
+```bash
+make lint
+```
+
 ### Code Formatting
 
 ```bash
 make fmt
 ```
-
-## Roadmap
-
-Future features planned for k10s:
-
-- [ ] Search/filter functionality
-- [ ] Support for more resource types (deployments, services, etc.)
-- [ ] Resource details view
-- [ ] Log streaming
-- [ ] Multi-cluster support
-- [ ] Custom column configuration
-- [ ] Export data to CSV/JSON
-- [ ] Real-time resource updates
-- [ ] Resource editing capabilities
-- [ ] Custom themes and color schemes
 
 ## Contributing
 
@@ -178,16 +128,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-MIT License - see LICENSE file for details
-
-## Credits
-
-Built with love for the Kubernetes community, especially those running massive AI/ML infrastructure.
-
-Powered by:
-- [Charm](https://charm.sh/) - For the amazing TUI libraries
-- [Kubernetes](https://kubernetes.io/) - The cloud-native platform
-
----
-
-**k10s** - Because your cluster deserves better tools. 🐱
+Apache 2.0 - see LICENSE file for details
