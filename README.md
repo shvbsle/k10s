@@ -24,6 +24,15 @@ make build
 
 The binary will be available at `bin/k10s`.
 
+### Homebrew (Coming Soon)
+
+Once releases are published:
+
+```bash
+brew tap shvbsle/tap
+brew install k10s
+```
+
 ### Running
 
 ```bash
@@ -125,6 +134,10 @@ make fmt
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Releasing
+
+See [RELEASING.md](RELEASING.md) for detailed instructions on creating releases.
 
 ## License
 
