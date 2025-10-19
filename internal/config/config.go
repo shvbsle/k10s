@@ -38,7 +38,9 @@ func Load() (*Config, error) {
 		// Config file doesn't exist, return defaults
 		return cfg, nil
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close() // Ignore close error on read-only file
+	}()
 
 	scanner := bufio.NewScanner(file)
 	var logoLines []string

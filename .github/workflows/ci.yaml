@@ -9,7 +9,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: '1.23' }
+        with: { go-version: '1.24' }
       - name: Cache Go
         uses: actions/cache@v4
         with:
@@ -21,6 +21,7 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
+          args: --timeout=5m
       - name: Test
         run: go test ./... -cover
       - name: Build
