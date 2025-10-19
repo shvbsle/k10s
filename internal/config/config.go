@@ -10,17 +10,23 @@ import (
 )
 
 const (
+	// DefaultPageSize is the default number of items to display per page.
 	DefaultPageSize = 20
-	DefaultLogo     = ` /\_/\
+	// DefaultLogo is the default ASCII art logo displayed in the TUI header.
+	DefaultLogo = ` /\_/\
 ( o.o )
  > Y <`
 )
 
+// Config holds the user configuration for k10s, including display preferences
+// like page size and the ASCII logo to show in the header.
 type Config struct {
 	PageSize int
 	Logo     string
 }
 
+// Load reads the k10s configuration from ~/.k10s.conf. If the file doesn't
+// exist or cannot be read, it returns a Config with default values.
 func Load() (*Config, error) {
 	cfg := &Config{
 		PageSize: DefaultPageSize,
@@ -90,6 +96,8 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// CreateDefaultConfig creates a default configuration file at ~/.k10s.conf
+// if it doesn't already exist. It does not overwrite existing configurations.
 func CreateDefaultConfig() error {
 	home, err := os.UserHomeDir()
 	if err != nil {

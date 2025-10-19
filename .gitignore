@@ -32,3 +32,9 @@ go.work.sum
 # .idea/
 # .vscode/
 dist/
+
+# Project documentation
+CLAUDE.md
+
+# Play/test files
+k10s-play.yaml
