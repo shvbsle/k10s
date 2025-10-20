@@ -285,8 +285,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.table.SetHeight(tableHeight)
 
-		// Account for borders and padding
-		totalWidth := m.width - 6
+		// Rough calc for border renders:
+		// Total overhead: 2 (borders) + 5 (column spacing) = 7
+		totalWidth := m.width - 7
 		if totalWidth < 90 {
 			totalWidth = 90
 		}
@@ -302,7 +303,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resourceType = msg.resType
 		// Update column headers based on new resource type
 		if m.width > 0 {
-			totalWidth := m.width - 6
+			totalWidth := m.width - 7
 			if totalWidth < 90 {
 				totalWidth = 90
 			}
@@ -526,6 +527,8 @@ func (m Model) View() string {
 
 	var b strings.Builder
 
+	b.WriteString("\n")
+
 	m.renderTopHeader(&b)
 	b.WriteString("\n\n")
 
@@ -540,7 +543,7 @@ func (m Model) View() string {
 		warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 		b.WriteString(warningStyle.Render("⚠ Disconnected from cluster"))
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(" - use :reconnect to connect"))
-		b.WriteString("\n\n")
+		b.WriteString("\n")
 	}
 
 	m.renderTableWithHeader(&b)
@@ -552,25 +555,147 @@ func (m Model) View() string {
 		m.renderPagination(&b)
 	}
 
+	// Calculate command palette height (if shown)
+	commandPaletteLines := 0
+	var commandPaletteContent string
 	if m.viewMode == ViewModeCommand {
-		b.WriteString("\n")
-		m.renderCommandInput(&b)
+		var cmdBuilder strings.Builder
+		m.renderCommandInput(&cmdBuilder)
+		commandPaletteContent = cmdBuilder.String()
+		commandPaletteLines = strings.Count(commandPaletteContent, "\n") + 2
 	}
 
-	// Fill remaining height to prevent resize artifacts
+	// Fill remaining height to push command palette to bottom
 	output := b.String()
 	if m.height > 0 {
 		renderedLines := strings.Count(output, "\n") + 1
-		if renderedLines < m.height {
-			remainingLines := m.height - renderedLines
+		totalNeeded := m.height - commandPaletteLines
+
+		if renderedLines < totalNeeded {
+			remainingLines := totalNeeded - renderedLines
 			output += strings.Repeat("\n", remainingLines)
 		}
+	}
+
+	if m.viewMode == ViewModeCommand {
+		output += "\n" + commandPaletteContent + "\n"
 	}
 
 	return output
 }
 
 func (m Model) renderTopHeader(b *strings.Builder) {
+	// We render the header in three modes depending no the number of lines available
+	// Stage 2 (Compact) = 20-30: 4 lines - info + help + kittens (no CPU/MEM)
+	// Stage 1 (Full) = >= 30: everything including CPU/MEM
+	if m.height < 30 {
+		m.renderCompactHeader(b)
+	} else {
+		m.renderFullHeader(b)
+	}
+}
+
+// renderCompactHeader shows 4-line header: info + help + kittens (no CPU/MEM)
+func (m Model) renderCompactHeader(b *strings.Builder) {
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+
+	statusColor := "46" // green
+	if !m.isConnected() {
+		statusColor = "203" // red
+	}
+	statusIndicator := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(statusColor)).
+		Bold(true).
+		Render("●")
+
+	// Build compact info (only 4 lines, no CPU/MEM)
+	var infoContent strings.Builder
+	if m.clusterInfo != nil {
+		infoContent.WriteString(labelStyle.Render("Context: ") + valueStyle.Render(m.clusterInfo.Context) + "\n")
+		infoContent.WriteString(labelStyle.Render("Cluster: ") + valueStyle.Render(m.clusterInfo.Cluster) + "\n")
+		nsDisplay := m.currentNamespace
+		if nsDisplay == "" {
+			nsDisplay = "all"
+		}
+		infoContent.WriteString(labelStyle.Render("Namespace: ") + valueStyle.Render(nsDisplay) + "\n")
+		infoContent.WriteString(labelStyle.Render("K10s Ver: ") + valueStyle.Render(Version))
+	}
+
+	infoBlock := statusIndicator + " " + infoContent.String()
+	helpBlock := m.help.View(m.keys)
+
+	kittenStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("205")).
+		Bold(true)
+	kitten1 := kittenStyle.Render(m.config.Logo)
+	kitten2 := kittenStyle.Render(m.config.Logo)
+	doubleKitten := lipgloss.JoinHorizontal(lipgloss.Top, kitten1, " ", kitten2)
+
+	termWidth := m.width
+	if termWidth < 80 {
+		termWidth = 80
+	}
+
+	infoBlockWidth := lipgloss.Width(infoBlock)
+	helpBlockWidth := lipgloss.Width(helpBlock)
+	doubleKittenWidth := lipgloss.Width(doubleKitten)
+
+	const minGap = 2
+	totalContentWidth := infoBlockWidth + helpBlockWidth + doubleKittenWidth + (minGap * 2)
+
+	// Use natural widths if content fits, otherwise constrain with max widths
+	if totalContentWidth <= termWidth {
+		gap1 := minGap
+		gap2 := termWidth - infoBlockWidth - helpBlockWidth - doubleKittenWidth - gap1
+		if gap2 < minGap {
+			gap2 = minGap
+		}
+
+		header := lipgloss.JoinHorizontal(lipgloss.Top,
+			infoBlock,
+			strings.Repeat(" ", gap1),
+			helpBlock,
+			strings.Repeat(" ", gap2),
+			doubleKitten,
+		)
+		b.WriteString(header)
+	} else {
+		maxInfoWidth := int(float64(termWidth) * 0.25)
+		maxHelpWidth := int(float64(termWidth) * 0.45)
+		kittenSpace := doubleKittenWidth + minGap
+
+		if maxInfoWidth < 20 {
+			maxInfoWidth = 20
+		}
+		if maxHelpWidth < 30 {
+			maxHelpWidth = 30
+		}
+
+		infoStyled := lipgloss.NewStyle().MaxWidth(maxInfoWidth).Render(infoBlock)
+		helpStyled := lipgloss.NewStyle().MaxWidth(maxHelpWidth).Render(helpBlock)
+
+		actualInfoWidth := lipgloss.Width(infoStyled)
+		actualHelpWidth := lipgloss.Width(helpStyled)
+
+		remainingSpace := termWidth - actualInfoWidth - actualHelpWidth - kittenSpace
+		if remainingSpace < 0 {
+			remainingSpace = 0
+		}
+
+		header := lipgloss.JoinHorizontal(lipgloss.Top,
+			infoStyled,
+			strings.Repeat(" ", minGap),
+			helpStyled,
+			strings.Repeat(" ", remainingSpace),
+			doubleKitten,
+		)
+		b.WriteString(header)
+	}
+}
+
+// renderFullHeader shows everything including kittens (for large terminals)
+func (m Model) renderFullHeader(b *strings.Builder) {
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
@@ -607,7 +732,7 @@ func (m Model) renderTopHeader(b *strings.Builder) {
 		Bold(true)
 	kitten1 := kittenStyle.Render(m.config.Logo)
 	kitten2 := kittenStyle.Render(m.config.Logo)
-	doubleKitten := lipgloss.JoinHorizontal(lipgloss.Top, kitten1, "  ", kitten2)
+	doubleKitten := lipgloss.JoinHorizontal(lipgloss.Top, kitten1, " ", kitten2)
 
 	termWidth := m.width
 	if termWidth < 80 {
