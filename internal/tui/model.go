@@ -60,6 +60,7 @@ func (e errMsg) Error() string { return e.err.Error() }
 type resourcesLoadedMsg struct {
 	resources []k8s.Resource
 	resType   k8s.ResourceType
+	namespace string // The namespace these resources were loaded from
 }
 
 type commandErrMsg struct {
@@ -201,6 +202,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resourcesLoadedMsg:
 		m.resources = msg.resources
 		m.resourceType = msg.resType
+		m.currentNamespace = msg.namespace // Update the current namespace
 		// Update column headers based on new resource type
 		if m.width > 0 {
 			totalWidth := m.width - 7
