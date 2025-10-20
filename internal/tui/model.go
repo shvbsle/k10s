@@ -546,10 +546,10 @@ func (m Model) View() string {
 	m.renderTableWithHeader(&b)
 	b.WriteString("\n")
 
+	// Render pagination based on configured style
 	if len(m.resources) > m.paginator.PerPage {
-		paginatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-		pageInfo := fmt.Sprintf("Page %d/%d", m.paginator.Page+1, m.paginator.TotalPages)
-		b.WriteString("\n" + paginatorStyle.Render(pageInfo))
+		b.WriteString("\n")
+		m.renderPagination(&b)
 	}
 
 	if m.viewMode == ViewModeCommand {
@@ -825,6 +825,22 @@ func (m Model) buildTopBorderWithTitle(title string, width int, borderColor lipg
 	result.WriteString(borderStyle.Render("┐"))
 
 	return result.String()
+}
+
+func (m Model) renderPagination(b *strings.Builder) {
+	switch m.config.PaginationStyle {
+	case config.PaginationStyleVerbose:
+		// Text-based pagination: "Page 1/10"
+		paginatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+		pageInfo := fmt.Sprintf("Page %d/%d", m.paginator.Page+1, m.paginator.TotalPages)
+		b.WriteString(paginatorStyle.Render(pageInfo))
+	case config.PaginationStyleBubbles:
+		// Bubbles paginator component (dots)
+		b.WriteString(m.paginator.View())
+	default:
+		// Default to bubbles style
+		b.WriteString(m.paginator.View())
+	}
 }
 
 func (m Model) renderCommandInput(b *strings.Builder) {

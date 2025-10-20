@@ -81,6 +81,10 @@ k10s reads configuration from `~/.k10s.conf`. On first run, a default config fil
 # Number of items per page in table views
 page_size=20
 
+# Pagination style: "bubbles" (dots) or "verbose" (text like "Page 1/10")
+# Default: bubbles
+pagination_style=bubbles
+
 # ASCII logo (between logo_start and logo_end)
 logo_start
  /\_/\
@@ -92,6 +96,7 @@ logo_end
 ### Configuration Options
 
 - `page_size`: Number of rows to display per page (default: 20)
+- `pagination_style`: Pagination display style - `bubbles` for dot-based paginator or `verbose` for text like "Page 1/10" (default: bubbles)
 - `logo_start`/`logo_end`: Custom ASCII art logo to display
 
 ## Development

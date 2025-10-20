@@ -16,21 +16,35 @@ const (
 	DefaultLogo = ` /\_/\
 ( o.o )
  > Y <`
+	// DefaultPaginationStyle is the default pagination display style.
+	DefaultPaginationStyle = "bubbles"
+)
+
+// PaginationStyle represents the style of pagination display
+type PaginationStyle string
+
+const (
+	// PaginationStyleBubbles uses the bubbles paginator component (dots)
+	PaginationStyleBubbles PaginationStyle = "bubbles"
+	// PaginationStyleVerbose uses text like "Page 1/10"
+	PaginationStyleVerbose PaginationStyle = "verbose"
 )
 
 // Config holds the user configuration for k10s, including display preferences
 // like page size and the ASCII logo to show in the header.
 type Config struct {
-	PageSize int
-	Logo     string
+	PageSize        int
+	Logo            string
+	PaginationStyle PaginationStyle
 }
 
 // Load reads the k10s configuration from ~/.k10s.conf. If the file doesn't
 // exist or cannot be read, it returns a Config with default values.
 func Load() (*Config, error) {
 	cfg := &Config{
-		PageSize: DefaultPageSize,
-		Logo:     DefaultLogo,
+		PageSize:        DefaultPageSize,
+		Logo:            DefaultLogo,
+		PaginationStyle: PaginationStyleBubbles,
 	}
 
 	home, err := os.UserHomeDir()
@@ -90,6 +104,13 @@ func Load() (*Config, error) {
 			if size, err := strconv.Atoi(value); err == nil && size > 0 {
 				cfg.PageSize = size
 			}
+		case "pagination_style":
+			switch value {
+			case "bubbles":
+				cfg.PaginationStyle = PaginationStyleBubbles
+			case "verbose":
+				cfg.PaginationStyle = PaginationStyleVerbose
+			}
 		}
 	}
 
@@ -114,6 +135,10 @@ func CreateDefaultConfig() error {
 	defaultConfig := `# k10s configuration file
 # Number of items per page in table views
 page_size=20
+
+# Pagination style: "bubbles" (dots) or "verbose" (text like "Page 1/10")
+# Default: bubbles
+pagination_style=bubbles
 
 # ASCII logo (between logo_start and logo_end)
 logo_start
