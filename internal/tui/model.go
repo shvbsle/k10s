@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/paginator"
@@ -49,6 +50,7 @@ type Model struct {
 	width              int
 	height             int
 	err                error
+	commandErr         string // Command-specific error shown at bottom for 5s
 }
 
 type errMsg struct{ err error }
@@ -59,6 +61,12 @@ type resourcesLoadedMsg struct {
 	resources []k8s.Resource
 	resType   k8s.ResourceType
 }
+
+type commandErrMsg struct {
+	message string
+}
+
+type clearCommandErrMsg struct{}
 
 // New creates a new TUI model with the provided configuration and Kubernetes client.
 // The client may be nil or disconnected - the TUI will handle this gracefully and
@@ -209,6 +217,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		return m, nil
 
+	case commandErrMsg:
+		m.commandErr = msg.message
+		// Clear the error after 5 seconds
+		return m, tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+			return clearCommandErrMsg{}
+		})
+
+	case clearCommandErrMsg:
+		m.commandErr = ""
+		return m, nil
+
 	case tea.KeyMsg:
 		if m.viewMode == ViewModeCommand {
 			switch msg.String() {
@@ -332,18 +351,19 @@ func (m Model) View() string {
 	m.renderTopHeader(&b)
 	b.WriteString("\n\n")
 
-	if m.err != nil {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
-		b.WriteString(errorStyle.Render(fmt.Sprintf("⚠ Error: %v", m.err)))
-		if !m.isConnected() {
+	// Only show connection errors at the top (command errors shown in command palette)
+	if !m.isConnected() {
+		if m.err != nil {
+			errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
+			b.WriteString(errorStyle.Render(fmt.Sprintf("⚠ Error: %v", m.err)))
 			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(" (try :reconnect)"))
+			b.WriteString("\n\n")
+		} else {
+			warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+			b.WriteString(warningStyle.Render("⚠ Disconnected from cluster"))
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(" - use :reconnect to connect"))
+			b.WriteString("\n")
 		}
-		b.WriteString("\n\n")
-	} else if !m.isConnected() {
-		warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
-		b.WriteString(warningStyle.Render("⚠ Disconnected from cluster"))
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(" - use :reconnect to connect"))
-		b.WriteString("\n")
 	}
 
 	m.renderTableWithHeader(&b)
@@ -362,14 +382,24 @@ func (m Model) View() string {
 		var cmdBuilder strings.Builder
 		m.renderCommandInput(&cmdBuilder)
 		commandPaletteContent = cmdBuilder.String()
+		// Count actual newlines in the content plus padding (before and after)
 		commandPaletteLines = strings.Count(commandPaletteContent, "\n") + 2
 	}
 
-	// Fill remaining height to push command palette to bottom
+	// Calculate command error height (if shown)
+	commandErrorLines := 0
+	var commandErrorContent string
+	if m.commandErr != "" {
+		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
+		commandErrorContent = errorStyle.Render(fmt.Sprintf("⚠ %s", m.commandErr))
+		commandErrorLines = 2 // Error line + padding
+	}
+
+	// Fill remaining height to push command palette/error to bottom
 	output := b.String()
 	if m.height > 0 {
 		renderedLines := strings.Count(output, "\n") + 1
-		totalNeeded := m.height - commandPaletteLines
+		totalNeeded := m.height - commandPaletteLines - commandErrorLines
 
 		if renderedLines < totalNeeded {
 			remainingLines := totalNeeded - renderedLines
@@ -379,6 +409,8 @@ func (m Model) View() string {
 
 	if m.viewMode == ViewModeCommand {
 		output += "\n" + commandPaletteContent + "\n"
+	} else if m.commandErr != "" {
+		output += "\n" + commandErrorContent + "\n"
 	}
 
 	return output

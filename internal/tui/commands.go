@@ -36,7 +36,16 @@ func (m Model) executeCommand(command string) tea.Cmd {
 		return m.requireConnection(m.loadResourcesCmd(k8s.ResourceServices))
 	default:
 		log.Printf("TUI: Unknown command: %s", command)
-		return nil
+		return m.showCommandError(fmt.Sprintf("did not recognize command `%s`", command))
+	}
+}
+
+// showCommandError returns a command that sets the command error and clears it after 5 seconds.
+func (m Model) showCommandError(errMsg string) tea.Cmd {
+	return func() tea.Msg {
+		// First, update the model with the error
+		// This will be handled as a special commandErrMsg
+		return commandErrMsg{errMsg}
 	}
 }
 
