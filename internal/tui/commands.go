@@ -65,20 +65,9 @@ func (m Model) parseNamespaceArgs(args []string) string {
 		return ""
 	}
 
-	// Check for "-n <namespace>" or "--namespace <namespace>"
+	// Check for "-n <namespace>", "--namespace <namespace>", or "in <namespace>" patterns
 	for i := 0; i < len(args); i++ {
-		if (args[i] == "-n" || args[i] == "--namespace") && i+1 < len(args) {
-			ns := args[i+1]
-			if ns == "all" {
-				return ""
-			}
-			return ns
-		}
-	}
-
-	// Check for "in <namespace>" pattern
-	for i := 0; i < len(args); i++ {
-		if args[i] == "in" && i+1 < len(args) {
+		if (args[i] == "-n" || args[i] == "--namespace" || args[i] == "in") && i+1 < len(args) {
 			ns := args[i+1]
 			if ns == "all" {
 				return ""
