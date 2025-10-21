@@ -12,10 +12,19 @@ import (
 
 // executeCommand processes a command string and returns the appropriate tea command.
 func (m Model) executeCommand(command string) tea.Cmd {
-	command = strings.ToLower(command)
+	originalCommand := command
+	command = strings.ToLower(strings.TrimSpace(command))
 	log.Printf("TUI: Executing command: %s", command)
 
-	switch command {
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return nil
+	}
+
+	baseCommand := parts[0]
+	args := parts[1:]
+
+	switch baseCommand {
 	case "quit", "q":
 		log.Printf("TUI: User quit application")
 		return tea.Quit
@@ -23,8 +32,9 @@ func (m Model) executeCommand(command string) tea.Cmd {
 		log.Printf("TUI: User requested reconnect")
 		return m.reconnectCmd()
 	case "pods", "pod", "po":
-		log.Printf("TUI: Loading pods")
-		return m.requireConnection(m.loadResourcesCmd(k8s.ResourcePods))
+		namespace := m.parseNamespaceArgs(args)
+		log.Printf("TUI: Loading pods from namespace: %s", namespace)
+		return m.requireConnection(m.loadResourcesWithNamespace(k8s.ResourcePods, namespace))
 	case "nodes", "node", "no":
 		log.Printf("TUI: Loading nodes")
 		return m.requireConnection(m.loadResourcesCmd(k8s.ResourceNodes))
@@ -32,12 +42,47 @@ func (m Model) executeCommand(command string) tea.Cmd {
 		log.Printf("TUI: Loading namespaces")
 		return m.requireConnection(m.loadResourcesCmd(k8s.ResourceNamespaces))
 	case "services", "service", "svc":
-		log.Printf("TUI: Loading services")
-		return m.requireConnection(m.loadResourcesCmd(k8s.ResourceServices))
+		namespace := m.parseNamespaceArgs(args)
+		log.Printf("TUI: Loading services from namespace: %s", namespace)
+		return m.requireConnection(m.loadResourcesWithNamespace(k8s.ResourceServices, namespace))
 	default:
 		log.Printf("TUI: Unknown command: %s", command)
-		return m.showCommandError(fmt.Sprintf("did not recognize command `%s`", command))
+		return m.showCommandError(fmt.Sprintf("did not recognize command `%s`", originalCommand))
 	}
+}
+
+// parseNamespaceArgs parses namespace from command arguments.
+// Supports patterns:
+//   - "-n <namespace>" or "--namespace <namespace>"
+//   - "<namespace>" (direct)
+//   - "in <namespace>"
+//   - "all" or "-n all" (for all namespaces)
+//
+// Returns "" for all namespaces, or the specific namespace name.
+func (m Model) parseNamespaceArgs(args []string) string {
+	if len(args) == 0 {
+		// No args means all namespaces
+		return ""
+	}
+
+	// Check for "-n <namespace>", "--namespace <namespace>", or "in <namespace>" patterns
+	for i := 0; i < len(args); i++ {
+		if (args[i] == "-n" || args[i] == "--namespace" || args[i] == "in") && i+1 < len(args) {
+			ns := args[i+1]
+			if ns == "all" {
+				return ""
+			}
+			return ns
+		}
+	}
+
+	// Check if first arg is "all"
+	if args[0] == "all" {
+		return ""
+	}
+
+	// Otherwise, treat first arg as namespace
+	return args[0]
 }
 
 // showCommandError returns a command that sets the command error and clears it after 5 seconds.
@@ -49,13 +94,18 @@ func (m Model) showCommandError(errMsg string) tea.Cmd {
 	}
 }
 
-// loadResourcesCmd creates a command that loads the specified resource type.
+// loadResourcesCmd creates a command that loads the specified resource type using current namespace.
 func (m Model) loadResourcesCmd(resType k8s.ResourceType) tea.Cmd {
+	return m.loadResourcesWithNamespace(resType, m.currentNamespace)
+}
+
+// loadResourcesWithNamespace creates a command that loads the specified resource type from a specific namespace.
+func (m Model) loadResourcesWithNamespace(resType k8s.ResourceType, namespace string) tea.Cmd {
 	return func() tea.Msg {
 		var resources []k8s.Resource
 		var err error
 
-		ns := m.currentNamespace
+		ns := namespace
 		if ns == "" {
 			ns = "all"
 		}
@@ -63,7 +113,7 @@ func (m Model) loadResourcesCmd(resType k8s.ResourceType) tea.Cmd {
 		switch resType {
 		case k8s.ResourcePods:
 			log.Printf("TUI: Loading pods from namespace: %s", ns)
-			resources, err = m.k8sClient.ListPods(m.currentNamespace)
+			resources, err = m.k8sClient.ListPods(namespace)
 		case k8s.ResourceNodes:
 			log.Printf("TUI: Loading nodes")
 			resources, err = m.k8sClient.ListNodes()
@@ -72,10 +122,10 @@ func (m Model) loadResourcesCmd(resType k8s.ResourceType) tea.Cmd {
 			resources, err = m.k8sClient.ListNamespaces()
 		case k8s.ResourceServices:
 			log.Printf("TUI: Loading services from namespace: %s", ns)
-			resources, err = m.k8sClient.ListServices(m.currentNamespace)
+			resources, err = m.k8sClient.ListServices(namespace)
 		default:
 			log.Printf("TUI: Loading pods (default) from namespace: %s", ns)
-			resources, err = m.k8sClient.ListPods(m.currentNamespace)
+			resources, err = m.k8sClient.ListPods(namespace)
 		}
 
 		if err != nil {
@@ -87,6 +137,7 @@ func (m Model) loadResourcesCmd(resType k8s.ResourceType) tea.Cmd {
 		return resourcesLoadedMsg{
 			resources: resources,
 			resType:   resType,
+			namespace: namespace,
 		}
 	}
 }
@@ -117,6 +168,7 @@ func (m Model) reconnectCmd() tea.Cmd {
 		return resourcesLoadedMsg{
 			resources: resources,
 			resType:   k8s.ResourcePods,
+			namespace: "", // All namespaces after reconnect
 		}
 	}
 }
