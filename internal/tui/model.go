@@ -43,14 +43,19 @@ type Model struct {
 	resources          []k8s.Resource
 	resourceType       k8s.ResourceType
 	clusterInfo        *k8s.ClusterInfo
-	currentNamespace   string // "" = all namespaces, otherwise specific namespace
+	currentNamespace   string
 	commandSuggestions []string
 	selectedSuggestion int
+	navigationHistory  *NavigationHistory
 	ready              bool
 	width              int
 	height             int
 	err                error
-	commandErr         string // Command-specific error shown at bottom for 5s
+	commandErr         string
+	logAutoscroll      bool
+	logFullscreen      bool
+	logTimestamps      bool
+	logWrap            bool
 }
 
 type errMsg struct{ err error }
@@ -141,9 +146,14 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 		viewMode:           ViewModeNormal,
 		resourceType:       k8s.ResourcePods,
 		clusterInfo:        clusterInfo,
-		currentNamespace:   "", // Start with all namespaces
+		currentNamespace:   "",
 		commandSuggestions: suggestions,
 		selectedSuggestion: -1,
+		navigationHistory:  NewNavigationHistory(),
+		logAutoscroll:      true,
+		logFullscreen:      false,
+		logTimestamps:      false,
+		logWrap:            true,
 	}
 }
 
@@ -212,6 +222,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateColumns(totalWidth)
 		}
 		m.updateTableData()
+
+		if m.resourceType == k8s.ResourceLogs && m.logAutoscroll {
+			m.table.GotoBottom()
+		}
+
 		return m, nil
 
 	case errMsg:
@@ -266,26 +281,86 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "0":
 				if !m.isConnected() {
 					m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
-					log.Printf("TUI: User attempted to switch to all namespaces while disconnected")
 					return m, nil
 				}
+				// Guard: only works for namespace-aware resource types
+				if m.resourceType == k8s.ResourceContainers ||
+					m.resourceType == k8s.ResourceLogs ||
+					m.resourceType == k8s.ResourceNodes {
+					return m, nil // No-op
+				}
 				m.currentNamespace = ""
-				m.paginator.Page = 0 // Avoid slice bounds panic
+				m.paginator.Page = 0
 				m.err = nil
-				log.Printf("TUI: Switched to all namespaces")
 				return m, m.loadResourcesCmd(m.resourceType)
 			case "d":
 				if !m.isConnected() {
 					m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
-					log.Printf("TUI: User attempted to switch to default namespace while disconnected")
 					return m, nil
+				}
+				// Guard: only works for namespace-aware resource types
+				if m.resourceType == k8s.ResourceContainers ||
+					m.resourceType == k8s.ResourceLogs ||
+					m.resourceType == k8s.ResourceNodes {
+					return m, nil // No-op
 				}
 				if m.clusterInfo != nil {
 					m.currentNamespace = m.clusterInfo.Namespace
-					m.paginator.Page = 0 // Avoid slice bounds panic
+					m.paginator.Page = 0
 					m.err = nil
-					log.Printf("TUI: Switched to default namespace (%s)", m.clusterInfo.Namespace)
 					return m, m.loadResourcesCmd(m.resourceType)
+				}
+				return m, nil
+			case "enter":
+				if m.resourceType == k8s.ResourceLogs {
+					return m, nil
+				}
+
+				if len(m.resources) == 0 {
+					return m, nil
+				}
+				actualIdx := m.paginator.Page*m.paginator.PerPage + m.table.Cursor()
+				if actualIdx >= len(m.resources) {
+					return m, nil
+				}
+				selectedResource := m.resources[actualIdx]
+
+				memento := m.saveToMemento(selectedResource.Name, selectedResource.Namespace)
+				m.navigationHistory.Push(memento)
+
+				return m, m.drillDown(selectedResource)
+
+			case "esc", "escape":
+				memento := m.navigationHistory.Pop()
+				if memento != nil {
+					m.restoreFromMemento(memento)
+				} else {
+					return m, m.loadResourcesWithNamespace(k8s.ResourcePods, "")
+				}
+				return m, nil
+			case "f":
+				if m.resourceType == k8s.ResourceLogs {
+					m.logFullscreen = !m.logFullscreen
+				}
+				return m, nil
+			case "s":
+				if m.resourceType == k8s.ResourceLogs {
+					m.logAutoscroll = !m.logAutoscroll
+					if m.logAutoscroll {
+						m.table.GotoBottom()
+					}
+				}
+				return m, nil
+			case "t":
+				if m.resourceType == k8s.ResourceLogs {
+					m.logTimestamps = !m.logTimestamps
+					m.updateTableData()
+				}
+				return m, nil
+			case "w":
+				if m.resourceType == k8s.ResourceLogs {
+					m.logWrap = !m.logWrap
+					m.updateTableData()
 				}
 				return m, nil
 			case "y":
@@ -350,8 +425,11 @@ func (m Model) View() string {
 
 	b.WriteString("\n")
 
-	m.renderTopHeader(&b)
-	b.WriteString("\n\n")
+	// Skip top header if fullscreen is enabled for logs
+	if !m.logFullscreen || m.resourceType != k8s.ResourceLogs {
+		m.renderTopHeader(&b)
+		b.WriteString("\n\n")
+	}
 
 	// Only show connection errors at the top (command errors shown in command palette)
 	if !m.isConnected() {
@@ -370,6 +448,12 @@ func (m Model) View() string {
 
 	m.renderTableWithHeader(&b)
 	b.WriteString("\n")
+
+	// Render breadcrumb navigation if we're in a drilled-down view
+	if m.navigationHistory.Len() > 0 {
+		b.WriteString("\n")
+		m.renderBreadcrumb(&b)
+	}
 
 	// Render pagination based on configured style
 	if len(m.resources) > m.paginator.PerPage {
@@ -416,4 +500,95 @@ func (m Model) View() string {
 	}
 
 	return output
+}
+
+// renderBreadcrumb renders the navigation breadcrumb showing the hierarchy path.
+func (m Model) renderBreadcrumb(b *strings.Builder) {
+	if m.navigationHistory.Len() == 0 {
+		return
+	}
+
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	brightStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	separatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+
+	var parts []string
+
+	breadcrumb := m.navigationHistory.GetBreadcrumb()
+	for i, level := range breadcrumb {
+		var part string
+		if i == len(breadcrumb)-1 {
+			part = brightStyle.Render(string(level.ResourceType))
+			if level.ResourceName != "" {
+				part += separatorStyle.Render(" > ") + brightStyle.Render(level.ResourceName)
+			}
+		} else {
+			part = dimStyle.Render(string(level.ResourceType))
+			if level.ResourceName != "" {
+				part += separatorStyle.Render(" > ") + dimStyle.Render(level.ResourceName)
+			}
+		}
+		parts = append(parts, part)
+	}
+
+	parts = append(parts, brightStyle.Render(string(m.resourceType)))
+
+	breadcrumbStr := strings.Join(parts, separatorStyle.Render(" > "))
+	b.WriteString(dimStyle.Render("Path: ") + breadcrumbStr)
+}
+
+// saveToMemento creates and returns a memento containing the current state of the Model.
+func (m Model) saveToMemento(selectedResourceName, selectedNamespace string) *ModelMemento {
+	return &ModelMemento{
+		resources:        m.resources,
+		resourceType:     m.resourceType,
+		currentNamespace: m.currentNamespace,
+		tableCursor:      m.table.Cursor(),
+		paginatorPage:    m.paginator.Page,
+		err:              m.err,
+		logAutoscroll:    m.logAutoscroll,
+		logFullscreen:    m.logFullscreen,
+		logTimestamps:    m.logTimestamps,
+		resourceName:     selectedResourceName,
+		namespace:        selectedNamespace,
+	}
+}
+
+// restoreFromMemento restores the Model's state from a memento.
+func (m *Model) restoreFromMemento(memento *ModelMemento) {
+	if memento == nil {
+		return
+	}
+
+	m.resources = memento.resources
+	m.resourceType = memento.resourceType
+	m.currentNamespace = memento.currentNamespace
+	m.err = memento.err
+	m.logAutoscroll = memento.logAutoscroll
+	m.logFullscreen = memento.logFullscreen
+	m.logTimestamps = memento.logTimestamps
+
+	// Update pagination
+	m.paginator.Page = memento.paginatorPage
+	m.paginator.SetTotalPages(len(m.resources))
+
+	// Update table columns and data
+	if m.width > 0 {
+		totalWidth := m.width - 7
+		if totalWidth < 90 {
+			totalWidth = 90
+		}
+		m.updateColumns(totalWidth)
+	}
+	m.updateTableData()
+
+	maxCursor := len(m.table.Rows()) - 1
+	if maxCursor < 0 {
+		maxCursor = 0
+	}
+	if memento.tableCursor > maxCursor {
+		m.table.SetCursor(maxCursor)
+	} else {
+		m.table.SetCursor(memento.tableCursor)
+	}
 }

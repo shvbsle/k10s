@@ -1,12 +1,17 @@
 package k8s
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -43,6 +48,10 @@ const (
 	ResourceNamespaces ResourceType = "namespaces"
 	// ResourceServices represents Kubernetes services.
 	ResourceServices ResourceType = "services"
+	// ResourceContainers represents containers within a pod.
+	ResourceContainers ResourceType = "containers"
+	// ResourceLogs represents logs for a specific container.
+	ResourceLogs ResourceType = "logs"
 )
 
 // Resource represents a Kubernetes resource with common fields suitable for
@@ -86,6 +95,10 @@ func (c *Client) testConnection() bool {
 	}
 	_, err := c.clientset.Discovery().ServerVersion()
 	return err == nil
+}
+
+func (c *Client) markDisconnected() {
+	c.isConnected = false
 }
 
 // IsConnected returns true if the client is currently connected to a Kubernetes cluster.
@@ -222,7 +235,7 @@ func (c *Client) ListPods(namespace string) ([]Resource, error) {
 
 	pods, err := c.clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		c.isConnected = false // Mark as disconnected on error
+		c.markDisconnected()
 		return nil, err
 	}
 
@@ -257,7 +270,7 @@ func (c *Client) ListNodes() ([]Resource, error) {
 
 	nodes, err := c.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		c.isConnected = false // Mark as disconnected on error
+		c.markDisconnected()
 		return nil, err
 	}
 
@@ -303,7 +316,7 @@ func (c *Client) ListNamespaces() ([]Resource, error) {
 
 	namespaces, err := c.clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		c.isConnected = false // Mark as disconnected on error
+		c.markDisconnected()
 		return nil, err
 	}
 
@@ -339,7 +352,7 @@ func (c *Client) ListServices(namespace string) ([]Resource, error) {
 
 	services, err := c.clientset.CoreV1().Services(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		c.isConnected = false // Mark as disconnected on error
+		c.markDisconnected()
 		return nil, err
 	}
 
@@ -383,6 +396,249 @@ func (c *Client) ListServices(namespace string) ([]Resource, error) {
 			Age:       formatAge(svc.CreationTimestamp.Time),
 			Extra:     portInfo,
 		}
+	}
+
+	return resources, nil
+}
+
+// ListContainersForPod retrieves all containers (init and regular) for a specific pod.
+// Returns an error if the client is not connected or if the API request fails.
+func (c *Client) ListContainersForPod(podName, namespace string) ([]Resource, error) {
+	if !c.isConnected || c.clientset == nil {
+		return nil, fmt.Errorf("not connected to cluster")
+	}
+
+	ctx := context.Background()
+
+	pod, err := c.clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		c.markDisconnected()
+		return nil, err
+	}
+
+	var resources []Resource
+
+	// Add init containers
+	for _, container := range pod.Spec.InitContainers {
+		status := "Waiting"
+		restarts := 0
+		ready := "No"
+
+		for _, cs := range pod.Status.InitContainerStatuses {
+			if cs.Name == container.Name {
+				restarts = int(cs.RestartCount)
+				if cs.Ready {
+					ready = "Yes"
+				}
+				if cs.State.Running != nil {
+					status = "Running"
+				} else if cs.State.Terminated != nil {
+					status = "Terminated"
+				} else if cs.State.Waiting != nil {
+					status = fmt.Sprintf("Waiting: %s", cs.State.Waiting.Reason)
+				}
+				break
+			}
+		}
+
+		resources = append(resources, Resource{
+			Name:      container.Name,
+			Namespace: "[init]",
+			Node:      container.Image,
+			Status:    status,
+			Age:       fmt.Sprintf("%d", restarts),
+			Extra:     ready,
+		})
+	}
+
+	// Add regular containers
+	for _, container := range pod.Spec.Containers {
+		status := "Waiting"
+		restarts := 0
+		ready := "No"
+
+		for _, cs := range pod.Status.ContainerStatuses {
+			if cs.Name == container.Name {
+				restarts = int(cs.RestartCount)
+				if cs.Ready {
+					ready = "Yes"
+				}
+				if cs.State.Running != nil {
+					status = "Running"
+				} else if cs.State.Terminated != nil {
+					status = "Terminated"
+				} else if cs.State.Waiting != nil {
+					status = fmt.Sprintf("Waiting: %s", cs.State.Waiting.Reason)
+				}
+				break
+			}
+		}
+
+		resources = append(resources, Resource{
+			Name:      container.Name,
+			Namespace: "",
+			Node:      container.Image,
+			Status:    status,
+			Age:       fmt.Sprintf("%d", restarts),
+			Extra:     ready,
+		})
+	}
+
+	return resources, nil
+}
+
+// ListPodsOnNode retrieves all pods running on a specific node.
+// Returns an error if the client is not connected or if the API request fails.
+func (c *Client) ListPodsOnNode(nodeName string, namespace string) ([]Resource, error) {
+	if !c.isConnected || c.clientset == nil {
+		return nil, fmt.Errorf("not connected to cluster")
+	}
+
+	ctx := context.Background()
+	ns := namespace
+	if ns == "" {
+		ns = metav1.NamespaceAll
+	}
+
+	pods, err := c.clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
+	})
+	if err != nil {
+		c.markDisconnected()
+		return nil, err
+	}
+
+	resources := make([]Resource, len(pods.Items))
+	for i, pod := range pods.Items {
+		status := string(pod.Status.Phase)
+		if pod.DeletionTimestamp != nil {
+			status = "Terminating"
+		}
+
+		resources[i] = Resource{
+			Name:      pod.Name,
+			Namespace: pod.Namespace,
+			Node:      pod.Spec.NodeName,
+			Status:    status,
+			Age:       formatAge(pod.CreationTimestamp.Time),
+			Extra:     pod.Status.PodIP,
+		}
+	}
+
+	return resources, nil
+}
+
+// ListPodsForService retrieves all pods that match a service's selector.
+// Returns an error if the client is not connected or if the API request fails.
+func (c *Client) ListPodsForService(serviceName, namespace string) ([]Resource, error) {
+	if !c.isConnected || c.clientset == nil {
+		return nil, fmt.Errorf("not connected to cluster")
+	}
+
+	ctx := context.Background()
+
+	service, err := c.clientset.CoreV1().Services(namespace).Get(ctx, serviceName, metav1.GetOptions{})
+	if err != nil {
+		c.markDisconnected()
+		return nil, err
+	}
+
+	if len(service.Spec.Selector) == 0 {
+		return []Resource{}, nil
+	}
+
+	selector := labels.Set(service.Spec.Selector).AsSelector()
+	pods, err := c.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: selector.String(),
+	})
+	if err != nil {
+		c.markDisconnected()
+		return nil, err
+	}
+
+	resources := make([]Resource, len(pods.Items))
+	for i, pod := range pods.Items {
+		status := string(pod.Status.Phase)
+		if pod.DeletionTimestamp != nil {
+			status = "Terminating"
+		}
+
+		resources[i] = Resource{
+			Name:      pod.Name,
+			Namespace: pod.Namespace,
+			Node:      pod.Spec.NodeName,
+			Status:    status,
+			Age:       formatAge(pod.CreationTimestamp.Time),
+			Extra:     pod.Status.PodIP,
+		}
+	}
+
+	return resources, nil
+}
+
+// GetContainerLogs retrieves the last N lines of logs for a specific container.
+// Returns an error if the client is not connected or if the API request fails.
+// When withTimestamps is true, timestamps are stored in the Namespace field of Resource.
+func (c *Client) GetContainerLogs(podName, namespace, containerName string, tailLines int, withTimestamps bool) ([]Resource, error) {
+	if !c.isConnected || c.clientset == nil {
+		return nil, fmt.Errorf("not connected to cluster")
+	}
+
+	ctx := context.Background()
+
+	tail := int64(tailLines)
+	logOptions := &corev1.PodLogOptions{
+		Container:  containerName,
+		TailLines:  &tail,
+		Timestamps: withTimestamps,
+	}
+
+	req := c.clientset.CoreV1().Pods(namespace).GetLogs(podName, logOptions)
+	podLogs, err := req.Stream(ctx)
+	if err != nil {
+		c.markDisconnected()
+		return nil, err
+	}
+	defer func() {
+		_ = podLogs.Close()
+	}()
+
+	var resources []Resource
+	scanner := bufio.NewScanner(podLogs)
+	lineNum := 1
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		var timestamp string
+		var logContent string
+
+		if withTimestamps {
+			parts := strings.SplitN(line, " ", 2)
+			if len(parts) == 2 {
+				timestamp = parts[0]
+				logContent = parts[1]
+			} else {
+				logContent = line
+			}
+		} else {
+			logContent = line
+		}
+
+		logLine := fmt.Sprintf("%4d: %s", lineNum, logContent)
+
+		resources = append(resources, Resource{
+			Name:      logLine,
+			Namespace: timestamp,
+			Node:      "",
+			Status:    "",
+			Age:       "",
+			Extra:     "",
+		})
+		lineNum++
+	}
+
+	if err := scanner.Err(); err != nil && err != io.EOF {
+		return nil, err
 	}
 
 	return resources, nil

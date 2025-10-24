@@ -10,7 +10,7 @@ version:
 	@cat VERSION
 
 # Run quality checks before building
-check: fmt vet lint
+check: fmt vet test lint
 
 build: check
 	$(GO) build -trimpath -ldflags="-s -w -X $(MOD)/internal/core.Version=$$(git describe --tags --always --dirty)" -o bin/$(BINARY) ./cmd/k10s

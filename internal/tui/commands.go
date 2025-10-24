@@ -10,6 +10,8 @@ import (
 	"github.com/shvbsle/k10s/internal/k8s"
 )
 
+const defaultLogTailLines = 100
+
 // executeCommand processes a command string and returns the appropriate tea command.
 func (m Model) executeCommand(command string) tea.Cmd {
 	originalCommand := command
@@ -26,27 +28,20 @@ func (m Model) executeCommand(command string) tea.Cmd {
 
 	switch baseCommand {
 	case "quit", "q":
-		log.Printf("TUI: User quit application")
 		return tea.Quit
 	case "reconnect", "r":
-		log.Printf("TUI: User requested reconnect")
 		return m.reconnectCmd()
 	case "pods", "pod", "po":
 		namespace := m.parseNamespaceArgs(args)
-		log.Printf("TUI: Loading pods from namespace: %s", namespace)
 		return m.requireConnection(m.loadResourcesWithNamespace(k8s.ResourcePods, namespace))
 	case "nodes", "node", "no":
-		log.Printf("TUI: Loading nodes")
 		return m.requireConnection(m.loadResourcesCmd(k8s.ResourceNodes))
 	case "namespaces", "namespace", "ns":
-		log.Printf("TUI: Loading namespaces")
 		return m.requireConnection(m.loadResourcesCmd(k8s.ResourceNamespaces))
 	case "services", "service", "svc":
 		namespace := m.parseNamespaceArgs(args)
-		log.Printf("TUI: Loading services from namespace: %s", namespace)
 		return m.requireConnection(m.loadResourcesWithNamespace(k8s.ResourceServices, namespace))
 	default:
-		log.Printf("TUI: Unknown command: %s", command)
 		return m.showCommandError(fmt.Sprintf("did not recognize command `%s`", originalCommand))
 	}
 }
@@ -88,8 +83,6 @@ func (m Model) parseNamespaceArgs(args []string) string {
 // showCommandError returns a command that sets the command error and clears it after 5 seconds.
 func (m Model) showCommandError(errMsg string) tea.Cmd {
 	return func() tea.Msg {
-		// First, update the model with the error
-		// This will be handled as a special commandErrMsg
 		return commandErrMsg{errMsg}
 	}
 }
@@ -105,26 +98,16 @@ func (m Model) loadResourcesWithNamespace(resType k8s.ResourceType, namespace st
 		var resources []k8s.Resource
 		var err error
 
-		ns := namespace
-		if ns == "" {
-			ns = "all"
-		}
-
 		switch resType {
 		case k8s.ResourcePods:
-			log.Printf("TUI: Loading pods from namespace: %s", ns)
 			resources, err = m.k8sClient.ListPods(namespace)
 		case k8s.ResourceNodes:
-			log.Printf("TUI: Loading nodes")
 			resources, err = m.k8sClient.ListNodes()
 		case k8s.ResourceNamespaces:
-			log.Printf("TUI: Loading namespaces")
 			resources, err = m.k8sClient.ListNamespaces()
 		case k8s.ResourceServices:
-			log.Printf("TUI: Loading services from namespace: %s", ns)
 			resources, err = m.k8sClient.ListServices(namespace)
 		default:
-			log.Printf("TUI: Loading pods (default) from namespace: %s", ns)
 			resources, err = m.k8sClient.ListPods(namespace)
 		}
 
@@ -132,8 +115,6 @@ func (m Model) loadResourcesWithNamespace(resType k8s.ResourceType, namespace st
 			log.Printf("TUI: Failed to load %s: %v", resType, err)
 			return errMsg{err}
 		}
-
-		log.Printf("TUI: Successfully loaded %d %s", len(resources), resType)
 		return resourcesLoadedMsg{
 			resources: resources,
 			resType:   resType,
@@ -163,8 +144,6 @@ func (m Model) reconnectCmd() tea.Cmd {
 			log.Printf("TUI: Failed to load pods after reconnect: %v", err)
 			return errMsg{err}
 		}
-
-		log.Printf("TUI: Loaded %d pods after reconnect", len(resources))
 		return resourcesLoadedMsg{
 			resources: resources,
 			resType:   k8s.ResourcePods,
@@ -214,4 +193,99 @@ func (m Model) getFilteredSuggestions() []string {
 	}
 
 	return filtered
+}
+
+// drillDown handles drilling down into a selected resource.
+// Navigation: Nodes -> Pods, Services -> Pods, Pods -> Containers, Containers -> Logs.
+func (m Model) drillDown(selectedResource k8s.Resource) tea.Cmd {
+	if !m.isConnected() {
+		return func() tea.Msg {
+			return errMsg{fmt.Errorf("not connected to cluster")}
+		}
+	}
+
+	switch m.resourceType {
+	case k8s.ResourceNodes:
+		return m.loadPodsOnNode(selectedResource.Name, m.currentNamespace)
+	case k8s.ResourceServices:
+		return m.loadPodsForService(selectedResource.Name, selectedResource.Namespace)
+	case k8s.ResourcePods:
+		return m.loadContainersForPod(selectedResource.Name, selectedResource.Namespace)
+	case k8s.ResourceContainers:
+		var podName, podNamespace string
+		memento, _ := m.navigationHistory.FindMementoByResourceType(k8s.ResourcePods)
+		if memento != nil {
+			podName = memento.resourceName
+			podNamespace = memento.namespace
+		}
+		return m.loadLogsForContainer(podName, podNamespace, selectedResource.Name)
+	case k8s.ResourceLogs:
+		return nil
+	default:
+		return nil
+	}
+}
+
+// loadPodsOnNode creates a command to load pods running on a specific node.
+func (m Model) loadPodsOnNode(nodeName string, namespace string) tea.Cmd {
+	return func() tea.Msg {
+		resources, err := m.k8sClient.ListPodsOnNode(nodeName, namespace)
+		if err != nil {
+			log.Printf("TUI: Failed to load pods on node: %v", err)
+			return errMsg{err}
+		}
+		return resourcesLoadedMsg{
+			resources: resources,
+			resType:   k8s.ResourcePods,
+			namespace: namespace,
+		}
+	}
+}
+
+// loadPodsForService creates a command to load pods that match a service's selector.
+func (m Model) loadPodsForService(serviceName string, namespace string) tea.Cmd {
+	return func() tea.Msg {
+		resources, err := m.k8sClient.ListPodsForService(serviceName, namespace)
+		if err != nil {
+			log.Printf("TUI: Failed to load pods for service: %v", err)
+			return errMsg{err}
+		}
+		return resourcesLoadedMsg{
+			resources: resources,
+			resType:   k8s.ResourcePods,
+			namespace: namespace,
+		}
+	}
+}
+
+// loadContainersForPod creates a command to load containers within a specific pod.
+func (m Model) loadContainersForPod(podName string, namespace string) tea.Cmd {
+	return func() tea.Msg {
+		resources, err := m.k8sClient.ListContainersForPod(podName, namespace)
+		if err != nil {
+			log.Printf("TUI: Failed to load containers: %v", err)
+			return errMsg{err}
+		}
+		return resourcesLoadedMsg{
+			resources: resources,
+			resType:   k8s.ResourceContainers,
+			namespace: namespace,
+		}
+	}
+}
+
+// loadLogsForContainer creates a command to load logs for a specific container.
+func (m Model) loadLogsForContainer(podName string, namespace string, containerName string) tea.Cmd {
+	return func() tea.Msg {
+		resources, err := m.k8sClient.GetContainerLogs(podName, namespace, containerName, defaultLogTailLines, true)
+		if err != nil {
+			log.Printf("TUI: Failed to load logs: %v", err)
+			return errMsg{err}
+		}
+		return resourcesLoadedMsg{
+			resources: resources,
+			resType:   k8s.ResourceLogs,
+			namespace: namespace,
+		}
+	}
 }
