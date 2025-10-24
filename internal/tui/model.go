@@ -41,21 +41,19 @@ type Model struct {
 	keys               keyMap
 	viewMode           ViewMode
 	resources          []k8s.Resource
+	logLines           []k8s.LogLine
 	resourceType       k8s.ResourceType
 	clusterInfo        *k8s.ClusterInfo
 	currentNamespace   string
 	commandSuggestions []string
 	selectedSuggestion int
 	navigationHistory  *NavigationHistory
+	logView            *LogViewState
 	ready              bool
 	width              int
 	height             int
 	err                error
 	commandErr         string
-	logAutoscroll      bool
-	logFullscreen      bool
-	logTimestamps      bool
-	logWrap            bool
 }
 
 type errMsg struct{ err error }
@@ -66,6 +64,11 @@ type resourcesLoadedMsg struct {
 	resources []k8s.Resource
 	resType   k8s.ResourceType
 	namespace string // The namespace these resources were loaded from
+}
+
+type logsLoadedMsg struct {
+	logLines  []k8s.LogLine
+	namespace string
 }
 
 type commandErrMsg struct {
@@ -150,10 +153,7 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 		commandSuggestions: suggestions,
 		selectedSuggestion: -1,
 		navigationHistory:  NewNavigationHistory(),
-		logAutoscroll:      true,
-		logFullscreen:      false,
-		logTimestamps:      false,
-		logWrap:            true,
+		logView:            NewLogViewState(),
 	}
 }
 
@@ -211,9 +211,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case resourcesLoadedMsg:
 		m.resources = msg.resources
+		m.logLines = nil // Clear log lines when loading resources
 		m.resourceType = msg.resType
-		m.currentNamespace = msg.namespace // Update the current namespace
-		// Update column headers based on new resource type
+		m.currentNamespace = msg.namespace
+		if m.width > 0 {
+			totalWidth := m.width - 7
+			if totalWidth < 90 {
+				totalWidth = 90
+			}
+			m.updateColumns(totalWidth)
+		}
+		m.updateTableData()
+		return m, nil
+
+	case logsLoadedMsg:
+		m.logLines = msg.logLines
+		m.resources = nil // Clear resources when loading logs
+		m.resourceType = k8s.ResourceLogs
+		m.currentNamespace = msg.namespace
 		if m.width > 0 {
 			totalWidth := m.width - 7
 			if totalWidth < 90 {
@@ -223,7 +238,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.updateTableData()
 
-		if m.resourceType == k8s.ResourceLogs && m.logAutoscroll {
+		if m.logView.Autoscroll {
 			m.table.GotoBottom()
 		}
 
@@ -283,11 +298,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
 					return m, nil
 				}
-				// Guard: only works for namespace-aware resource types
-				if m.resourceType == k8s.ResourceContainers ||
-					m.resourceType == k8s.ResourceLogs ||
-					m.resourceType == k8s.ResourceNodes {
-					return m, nil // No-op
+				if !isNamespaceAware(m.resourceType) {
+					return m, nil // No-op for non-namespace-aware resources
 				}
 				m.currentNamespace = ""
 				m.paginator.Page = 0
@@ -298,11 +310,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
 					return m, nil
 				}
-				// Guard: only works for namespace-aware resource types
-				if m.resourceType == k8s.ResourceContainers ||
-					m.resourceType == k8s.ResourceLogs ||
-					m.resourceType == k8s.ResourceNodes {
-					return m, nil // No-op
+				if !isNamespaceAware(m.resourceType) {
+					return m, nil // No-op for non-namespace-aware resources
 				}
 				if m.clusterInfo != nil {
 					m.currentNamespace = m.clusterInfo.Namespace
@@ -340,26 +349,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "f":
 				if m.resourceType == k8s.ResourceLogs {
-					m.logFullscreen = !m.logFullscreen
+					m.logView.Fullscreen = !m.logView.Fullscreen
 				}
 				return m, nil
 			case "s":
 				if m.resourceType == k8s.ResourceLogs {
-					m.logAutoscroll = !m.logAutoscroll
-					if m.logAutoscroll {
+					m.logView.Autoscroll = !m.logView.Autoscroll
+					if m.logView.Autoscroll {
 						m.table.GotoBottom()
 					}
 				}
 				return m, nil
 			case "t":
 				if m.resourceType == k8s.ResourceLogs {
-					m.logTimestamps = !m.logTimestamps
+					m.logView.ShowTimestamps = !m.logView.ShowTimestamps
 					m.updateTableData()
 				}
 				return m, nil
 			case "w":
 				if m.resourceType == k8s.ResourceLogs {
-					m.logWrap = !m.logWrap
+					m.logView.WrapText = !m.logView.WrapText
 					m.updateTableData()
 				}
 				return m, nil
@@ -426,7 +435,7 @@ func (m Model) View() string {
 	b.WriteString("\n")
 
 	// Skip top header if fullscreen is enabled for logs
-	if !m.logFullscreen || m.resourceType != k8s.ResourceLogs {
+	if !m.logView.Fullscreen || m.resourceType != k8s.ResourceLogs {
 		m.renderTopHeader(&b)
 		b.WriteString("\n\n")
 	}
@@ -456,7 +465,7 @@ func (m Model) View() string {
 	}
 
 	// Render pagination based on configured style
-	if len(m.resources) > m.paginator.PerPage {
+	if m.getTotalItems() > m.paginator.PerPage {
 		b.WriteString("\n")
 		m.renderPagination(&b)
 	}
@@ -546,9 +555,7 @@ func (m Model) saveToMemento(selectedResourceName, selectedNamespace string) *Mo
 		tableCursor:      m.table.Cursor(),
 		paginatorPage:    m.paginator.Page,
 		err:              m.err,
-		logAutoscroll:    m.logAutoscroll,
-		logFullscreen:    m.logFullscreen,
-		logTimestamps:    m.logTimestamps,
+		logView:          m.logView,
 		resourceName:     selectedResourceName,
 		namespace:        selectedNamespace,
 	}
@@ -564,9 +571,7 @@ func (m *Model) restoreFromMemento(memento *ModelMemento) {
 	m.resourceType = memento.resourceType
 	m.currentNamespace = memento.currentNamespace
 	m.err = memento.err
-	m.logAutoscroll = memento.logAutoscroll
-	m.logFullscreen = memento.logFullscreen
-	m.logTimestamps = memento.logTimestamps
+	m.logView = memento.logView
 
 	// Update pagination
 	m.paginator.Page = memento.paginatorPage

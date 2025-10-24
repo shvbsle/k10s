@@ -1,15 +1,12 @@
 package k8s
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
+	"log"
 	"os"
 	"path/filepath"
-	"strings"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
@@ -21,7 +18,7 @@ import (
 // for listing resources. It gracefully handles disconnected states and supports
 // reconnection.
 type Client struct {
-	clientset   *kubernetes.Clientset
+	clientset   kubernetes.Interface
 	config      *rest.Config
 	isConnected bool
 }
@@ -98,7 +95,10 @@ func (c *Client) testConnection() bool {
 }
 
 func (c *Client) markDisconnected() {
-	c.isConnected = false
+	if c.isConnected {
+		log.Printf("K8s: Client disconnected from cluster")
+		c.isConnected = false
+	}
 }
 
 // IsConnected returns true if the client is currently connected to a Kubernetes cluster.
@@ -571,74 +571,6 @@ func (c *Client) ListPodsForService(serviceName, namespace string) ([]Resource, 
 			Age:       formatAge(pod.CreationTimestamp.Time),
 			Extra:     pod.Status.PodIP,
 		}
-	}
-
-	return resources, nil
-}
-
-// GetContainerLogs retrieves the last N lines of logs for a specific container.
-// Returns an error if the client is not connected or if the API request fails.
-// When withTimestamps is true, timestamps are stored in the Namespace field of Resource.
-func (c *Client) GetContainerLogs(podName, namespace, containerName string, tailLines int, withTimestamps bool) ([]Resource, error) {
-	if !c.isConnected || c.clientset == nil {
-		return nil, fmt.Errorf("not connected to cluster")
-	}
-
-	ctx := context.Background()
-
-	tail := int64(tailLines)
-	logOptions := &corev1.PodLogOptions{
-		Container:  containerName,
-		TailLines:  &tail,
-		Timestamps: withTimestamps,
-	}
-
-	req := c.clientset.CoreV1().Pods(namespace).GetLogs(podName, logOptions)
-	podLogs, err := req.Stream(ctx)
-	if err != nil {
-		c.markDisconnected()
-		return nil, err
-	}
-	defer func() {
-		_ = podLogs.Close()
-	}()
-
-	var resources []Resource
-	scanner := bufio.NewScanner(podLogs)
-	lineNum := 1
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		var timestamp string
-		var logContent string
-
-		if withTimestamps {
-			parts := strings.SplitN(line, " ", 2)
-			if len(parts) == 2 {
-				timestamp = parts[0]
-				logContent = parts[1]
-			} else {
-				logContent = line
-			}
-		} else {
-			logContent = line
-		}
-
-		logLine := fmt.Sprintf("%4d: %s", lineNum, logContent)
-
-		resources = append(resources, Resource{
-			Name:      logLine,
-			Namespace: timestamp,
-			Node:      "",
-			Status:    "",
-			Age:       "",
-			Extra:     "",
-		})
-		lineNum++
-	}
-
-	if err := scanner.Err(); err != nil && err != io.EOF {
-		return nil, err
 	}
 
 	return resources, nil

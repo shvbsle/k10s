@@ -10,8 +10,6 @@ import (
 	"github.com/shvbsle/k10s/internal/k8s"
 )
 
-const defaultLogTailLines = 100
-
 // executeCommand processes a command string and returns the appropriate tea command.
 func (m Model) executeCommand(command string) tea.Cmd {
 	originalCommand := command
@@ -277,14 +275,13 @@ func (m Model) loadContainersForPod(podName string, namespace string) tea.Cmd {
 // loadLogsForContainer creates a command to load logs for a specific container.
 func (m Model) loadLogsForContainer(podName string, namespace string, containerName string) tea.Cmd {
 	return func() tea.Msg {
-		resources, err := m.k8sClient.GetContainerLogs(podName, namespace, containerName, defaultLogTailLines, true)
+		logLines, err := m.k8sClient.GetContainerLogs(podName, namespace, containerName, m.config.LogTailLines, true)
 		if err != nil {
 			log.Printf("TUI: Failed to load logs: %v", err)
 			return errMsg{err}
 		}
-		return resourcesLoadedMsg{
-			resources: resources,
-			resType:   k8s.ResourceLogs,
+		return logsLoadedMsg{
+			logLines:  logLines,
 			namespace: namespace,
 		}
 	}

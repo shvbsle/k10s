@@ -67,8 +67,17 @@ func wrapTextAtWordBoundary(text string, maxWidth int) []string {
 	return lines
 }
 
-// updateTableData updates the table rows based on the current page and resources.
+// updateTableData updates the table rows based on the current page and data.
 func (m *Model) updateTableData() {
+	if m.resourceType == k8s.ResourceLogs && m.logLines != nil {
+		m.updateTableDataForLogs()
+	} else {
+		m.updateTableDataForResources()
+	}
+}
+
+// updateTableDataForResources updates table with Kubernetes resources.
+func (m *Model) updateTableDataForResources() {
 	start := m.paginator.Page * m.paginator.PerPage
 	end := start + m.paginator.PerPage
 	if end > len(m.resources) {
@@ -76,73 +85,94 @@ func (m *Model) updateTableData() {
 	}
 
 	pageResources := m.resources[start:end]
-	var rows []table.Row
+	rows := make([]table.Row, len(pageResources))
 
-	for _, res := range pageResources {
-		// Handle logs separately with proper wrapping and timestamp support
-		if m.resourceType == k8s.ResourceLogs {
-			logContent := res.Name
-			var timestamp string
-			var timestampWidth int
-
-			// If timestamps are enabled, separate timestamp from content
-			if m.logTimestamps && res.Namespace != "" {
-				timestampStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-				timestamp = timestampStyle.Render(res.Namespace) + " "
-				timestampWidth = lipgloss.Width(timestamp)
-			}
-
-			if m.logWrap {
-				columns := m.table.Columns()
-				logWidth := columns[0].Width
-
-				// Calculate available width for content (accounting for timestamp)
-				availableWidth := logWidth - timestampWidth
-				if availableWidth < 10 {
-					availableWidth = 10 // Minimum width for content
-				}
-
-				// Wrap only the log content
-				wrappedLines := wrapTextAtWordBoundary(logContent, availableWidth)
-
-				for j, line := range wrappedLines {
-					var displayLine string
-					if j == 0 {
-						// First line: timestamp + content
-						displayLine = timestamp + line
-					} else {
-						// Continuation lines: indent to align with content + wrap indicator
-						indent := strings.Repeat(" ", timestampWidth)
-						displayLine = indent + "↳ " + line
-					}
-					rows = append(rows, table.Row{
-						displayLine,
-						"", "", "", "", "",
-					})
-				}
-			} else {
-				// When wrap is off, show timestamp + content on single line
-				displayLine := timestamp + logContent
-				rows = append(rows, table.Row{
-					displayLine,
-					"", "", "", "", "",
-				})
-			}
-		} else {
-			// Non-log resources
-			rows = append(rows, table.Row{
-				res.Name,
-				res.Namespace,
-				res.Node,
-				res.Status,
-				res.Age,
-				res.Extra,
-			})
+	for i, res := range pageResources {
+		rows[i] = table.Row{
+			res.Name,
+			res.Namespace,
+			res.Node,
+			res.Status,
+			res.Age,
+			res.Extra,
 		}
 	}
 
 	m.table.SetRows(rows)
 	m.paginator.SetTotalPages(len(m.resources))
+}
+
+// updateTableDataForLogs updates table with container logs.
+func (m *Model) updateTableDataForLogs() {
+	start := m.paginator.Page * m.paginator.PerPage
+	end := start + m.paginator.PerPage
+	if end > len(m.logLines) {
+		end = len(m.logLines)
+	}
+
+	pageLogLines := m.logLines[start:end]
+	var rows []table.Row
+
+	for _, logLine := range pageLogLines {
+		logRows := m.formatLogLine(logLine)
+		rows = append(rows, logRows...)
+	}
+
+	m.table.SetRows(rows)
+	m.paginator.SetTotalPages(len(m.logLines))
+}
+
+// formatLogLine formats a single log line for table display with optional wrapping.
+func (m *Model) formatLogLine(logLine k8s.LogLine) []table.Row {
+	// Format line number with content
+	logContent := fmt.Sprintf("%4d: %s", logLine.LineNum, logLine.Content)
+
+	var timestamp string
+	var timestampWidth int
+
+	// Add timestamp if enabled
+	if m.logView.ShowTimestamps && logLine.Timestamp != "" {
+		timestampStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+		timestamp = timestampStyle.Render(logLine.Timestamp) + " "
+		timestampWidth = lipgloss.Width(timestamp)
+	}
+
+	var rows []table.Row
+
+	if m.logView.WrapText {
+		columns := m.table.Columns()
+		logWidth := columns[0].Width
+
+		// Calculate available width for content
+		availableWidth := logWidth - timestampWidth
+		if availableWidth < 10 {
+			availableWidth = 10
+		}
+
+		wrappedLines := wrapTextAtWordBoundary(logContent, availableWidth)
+
+		for j, line := range wrappedLines {
+			var displayLine string
+			if j == 0 {
+				displayLine = timestamp + line
+			} else {
+				indent := strings.Repeat(" ", timestampWidth)
+				displayLine = indent + "↳ " + line
+			}
+			rows = append(rows, table.Row{
+				displayLine,
+				"", "", "", "", "",
+			})
+		}
+	} else {
+		displayLine := timestamp + logContent
+		rows = append(rows, table.Row{
+			displayLine,
+			"", "", "", "", "",
+		})
+	}
+
+	return rows
 }
 
 // renderTableWithHeader renders the table with a custom header border containing the resource type.
@@ -203,22 +233,22 @@ func (m Model) renderTableWithHeader(b *strings.Builder) {
 		labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 
 		autoscrollStatus := offStyle.Render("OFF")
-		if m.logAutoscroll {
+		if m.logView.Autoscroll {
 			autoscrollStatus = onStyle.Render("ON")
 		}
 
 		fullscreenStatus := offStyle.Render("OFF")
-		if m.logFullscreen {
+		if m.logView.Fullscreen {
 			fullscreenStatus = onStyle.Render("ON")
 		}
 
 		timestampStatus := offStyle.Render("OFF")
-		if m.logTimestamps {
+		if m.logView.ShowTimestamps {
 			timestampStatus = onStyle.Render("ON")
 		}
 
 		wrapStatus := offStyle.Render("OFF")
-		if m.logWrap {
+		if m.logView.WrapText {
 			wrapStatus = onStyle.Render("ON")
 		}
 
