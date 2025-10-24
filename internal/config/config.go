@@ -12,6 +12,8 @@ import (
 const (
 	// DefaultPageSize is the default number of items to display per page.
 	DefaultPageSize = 20
+	// DefaultLogTailLines is the default number of log lines to fetch.
+	DefaultLogTailLines = 100
 	// DefaultLogo is the default ASCII art logo displayed in the TUI header.
 	DefaultLogo = ` /\_/\
 ( o.o )
@@ -34,6 +36,7 @@ const (
 // like page size and the ASCII logo to show in the header.
 type Config struct {
 	PageSize        int
+	LogTailLines    int
 	Logo            string
 	PaginationStyle PaginationStyle
 }
@@ -43,6 +46,7 @@ type Config struct {
 func Load() (*Config, error) {
 	cfg := &Config{
 		PageSize:        DefaultPageSize,
+		LogTailLines:    DefaultLogTailLines,
 		Logo:            DefaultLogo,
 		PaginationStyle: PaginationStyleBubbles,
 	}
@@ -104,6 +108,10 @@ func Load() (*Config, error) {
 			if size, err := strconv.Atoi(value); err == nil && size > 0 {
 				cfg.PageSize = size
 			}
+		case "log_tail_lines":
+			if lines, err := strconv.Atoi(value); err == nil && lines > 0 {
+				cfg.LogTailLines = lines
+			}
 		case "pagination_style":
 			switch value {
 			case "bubbles":
@@ -135,6 +143,9 @@ func CreateDefaultConfig() error {
 	defaultConfig := `# k10s configuration file
 # Number of items per page in table views
 page_size=20
+
+# Number of log lines to fetch when viewing container logs
+log_tail_lines=100
 
 # Pagination style: "bubbles" (dots) or "verbose" (text like "Page 1/10")
 # Default: bubbles
