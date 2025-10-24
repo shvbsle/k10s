@@ -19,7 +19,7 @@ run: build
 	./bin/$(BINARY)
 
 test:
-	$(GO) test $(PKG) -cover
+	$(GO) test -race $(PKG) -cover
 
 fmt:
 	$(GO) fmt $(PKG)
