@@ -78,13 +78,22 @@ func (m *Model) updateTableData() {
 
 // updateTableDataForResources updates table with Kubernetes resources.
 func (m *Model) updateTableDataForResources() {
-	start := m.paginator.Page * m.paginator.PerPage
-	end := start + m.paginator.PerPage
-	if end > len(m.resources) {
-		end = len(m.resources)
+	// Use filtered resources if search is active, otherwise use all resources
+	displayResources := m.resources
+	if m.activeSearchQuery != "" {
+		displayResources = m.filteredResources
+	} else if m.searchQuery != "" {
+		// Real-time filtering while typing
+		displayResources = m.filteredResources
 	}
 
-	pageResources := m.resources[start:end]
+	start := m.paginator.Page * m.paginator.PerPage
+	end := start + m.paginator.PerPage
+	if end > len(displayResources) {
+		end = len(displayResources)
+	}
+
+	pageResources := displayResources[start:end]
 	rows := make([]table.Row, len(pageResources))
 
 	for i, res := range pageResources {
@@ -99,7 +108,7 @@ func (m *Model) updateTableDataForResources() {
 	}
 
 	m.table.SetRows(rows)
-	m.paginator.SetTotalPages(len(m.resources))
+	m.paginator.SetTotalPages(len(displayResources))
 }
 
 // updateTableDataForLogs updates table with container logs.
@@ -182,7 +191,13 @@ func (m Model) renderTableWithHeader(b *strings.Builder) {
 		nsDisplay = "all"
 	}
 
-	headerText := fmt.Sprintf(" %s[%s](%d) ", m.resourceType, nsDisplay, len(m.resources))
+	// Show filtered count if search is active
+	count := len(m.resources)
+	if m.activeSearchQuery != "" || m.searchQuery != "" {
+		count = len(m.filteredResources)
+	}
+
+	headerText := fmt.Sprintf(" %s[%s](%d) ", m.resourceType, nsDisplay, count)
 	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 
 	borderColor := lipgloss.Color("240")

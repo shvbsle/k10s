@@ -27,6 +27,8 @@ const (
 	ViewModeNormal ViewMode = iota
 	// ViewModeCommand is the command entry mode activated by pressing ':'.
 	ViewModeCommand
+	// ViewModeSearch is the search mode activated by pressing '/'.
+	ViewModeSearch
 )
 
 // Model represents the state of the k10s TUI application, including the current
@@ -37,16 +39,20 @@ type Model struct {
 	table              table.Model
 	paginator          paginator.Model
 	commandInput       textinput.Model
+	searchInput        textinput.Model
 	help               help.Model
 	keys               keyMap
 	viewMode           ViewMode
 	resources          []k8s.Resource
+	filteredResources  []k8s.Resource
 	logLines           []k8s.LogLine
 	resourceType       k8s.ResourceType
 	clusterInfo        *k8s.ClusterInfo
 	currentNamespace   string
 	commandSuggestions []string
 	selectedSuggestion int
+	searchQuery        string
+	activeSearchQuery  string
 	navigationHistory  *NavigationHistory
 	logView            *LogViewState
 	ready              bool
@@ -85,6 +91,11 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 	ti.Placeholder = "Enter command..."
 	ti.CharLimit = 100
 	ti.Width = 50
+
+	si := textinput.New()
+	si.Placeholder = "Search resources..."
+	si.CharLimit = 100
+	si.Width = 50
 
 	// Initial columns for pods (default resource type)
 	titles := getColumnTitles(k8s.ResourcePods)
@@ -144,6 +155,7 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 		table:              t,
 		paginator:          p,
 		commandInput:       ti,
+		searchInput:        si,
 		help:               h,
 		keys:               keys,
 		viewMode:           ViewModeNormal,
@@ -214,6 +226,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logLines = nil // Clear log lines when loading resources
 		m.resourceType = msg.resType
 		m.currentNamespace = msg.namespace
+		// Reapply active search filter if one exists
+		if m.activeSearchQuery != "" {
+			m.filteredResources = m.filterResources(m.activeSearchQuery)
+		} else {
+			m.filteredResources = m.resources
+		}
 		if m.width > 0 {
 			totalWidth := m.width - 7
 			if totalWidth < 90 {
@@ -261,7 +279,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.viewMode == ViewModeCommand {
+		switch m.viewMode {
+		case ViewModeCommand:
 			switch msg.String() {
 			case "enter":
 				command := strings.TrimSpace(m.commandInput.Value())
@@ -284,7 +303,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.commandInput, cmd = m.commandInput.Update(msg)
 				return m, cmd
 			}
-		} else {
+		case ViewModeSearch:
+			switch msg.String() {
+			case "enter":
+				// Make search sticky - keep the filter active
+				m.activeSearchQuery = m.searchInput.Value()
+				m.filteredResources = m.filterResources(m.activeSearchQuery)
+				m.searchInput.Reset()
+				m.searchQuery = ""
+				m.viewMode = ViewModeNormal
+				m.paginator.Page = 0
+				m.updateTableData()
+				return m, nil
+			case "esc":
+				// Cancel search mode without applying filter
+				m.searchInput.Reset()
+				m.searchQuery = ""
+				m.viewMode = ViewModeNormal
+				return m, nil
+			default:
+				m.searchInput, cmd = m.searchInput.Update(msg)
+				// Update search query and filter resources in real-time
+				m.searchQuery = m.searchInput.Value()
+				m.filteredResources = m.filterResources(m.searchQuery)
+				m.updateTableData()
+				return m, cmd
+			}
+		default:
 			// Handle keys explicitly to prevent double-processing
 			switch msg.String() {
 			case "q":
@@ -292,6 +337,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case ":":
 				m.viewMode = ViewModeCommand
 				m.commandInput.Focus()
+				return m, nil
+			case "/":
+				m.viewMode = ViewModeSearch
+				m.searchInput.Focus()
+				// If there's an active filter, pre-fill the search input
+				if m.activeSearchQuery != "" {
+					m.searchInput.SetValue(m.activeSearchQuery)
+					m.searchInput.SetCursor(len(m.activeSearchQuery))
+					m.searchQuery = m.activeSearchQuery
+				}
 				return m, nil
 			case "0":
 				if !m.isConnected() {
@@ -340,6 +395,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.drillDown(selectedResource)
 
 			case "esc", "escape":
+				// First check if there's an active search to clear
+				if m.activeSearchQuery != "" {
+					m.activeSearchQuery = ""
+					m.filteredResources = m.resources
+					m.paginator.Page = 0
+					m.updateTableData()
+					return m, nil
+				}
+				// Otherwise, handle navigation back
 				memento := m.navigationHistory.Pop()
 				if memento != nil {
 					m.restoreFromMemento(memento)
@@ -481,6 +545,29 @@ func (m Model) View() string {
 		commandPaletteLines = strings.Count(commandPaletteContent, "\n") + 2
 	}
 
+	// Calculate search input height (if shown)
+	searchInputLines := 0
+	var searchInputContent string
+	if m.viewMode == ViewModeSearch {
+		var searchBuilder strings.Builder
+		m.renderSearchInput(&searchBuilder)
+		searchInputContent = searchBuilder.String()
+		searchInputLines = strings.Count(searchInputContent, "\n") + 2
+	}
+
+	// Calculate active search indicator height (if filter is active in normal mode)
+	activeSearchLines := 0
+	var activeSearchContent string
+	if m.activeSearchQuery != "" && m.viewMode == ViewModeNormal {
+		indicatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+		queryStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
+		hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+		activeSearchContent = indicatorStyle.Render("Filter: ") +
+			queryStyle.Render(m.activeSearchQuery) +
+			"  " + hintStyle.Render("(press Esc to clear)")
+		activeSearchLines = 2 // Indicator line + padding
+	}
+
 	// Calculate command error height (if shown)
 	commandErrorLines := 0
 	var commandErrorContent string
@@ -490,11 +577,11 @@ func (m Model) View() string {
 		commandErrorLines = 2 // Error line + padding
 	}
 
-	// Fill remaining height to push command palette/error to bottom
+	// Fill remaining height to push command palette/search/error/indicator to bottom
 	output := b.String()
 	if m.height > 0 {
 		renderedLines := strings.Count(output, "\n") + 1
-		totalNeeded := m.height - commandPaletteLines - commandErrorLines
+		totalNeeded := m.height - commandPaletteLines - searchInputLines - activeSearchLines - commandErrorLines
 
 		if renderedLines < totalNeeded {
 			remainingLines := totalNeeded - renderedLines
@@ -504,6 +591,10 @@ func (m Model) View() string {
 
 	if m.viewMode == ViewModeCommand {
 		output += "\n" + commandPaletteContent + "\n"
+	} else if m.viewMode == ViewModeSearch {
+		output += "\n" + searchInputContent + "\n"
+	} else if m.activeSearchQuery != "" {
+		output += "\n" + activeSearchContent + "\n"
 	} else if m.commandErr != "" {
 		output += "\n" + commandErrorContent + "\n"
 	}

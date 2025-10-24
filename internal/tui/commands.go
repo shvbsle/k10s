@@ -286,3 +286,48 @@ func (m Model) loadLogsForContainer(podName string, namespace string, containerN
 		}
 	}
 }
+
+// filterResources filters resources based on the search query.
+// It searches across the Name, Namespace, Node, Status, and Extra fields.
+//
+// Note: This performs client-side filtering for maximum flexibility. Kubernetes
+// FieldSelector only supports exact matches on specific fields (like metadata.name),
+// not substring matching, so client-side filtering provides a better UX.
+func (m Model) filterResources(query string) []k8s.Resource {
+	if query == "" {
+		return m.resources
+	}
+
+	query = strings.ToLower(query)
+	var filtered []k8s.Resource
+
+	for _, res := range m.resources {
+		// Search in name, namespace, node, status, and extra fields
+		if strings.Contains(strings.ToLower(res.Name), query) ||
+			strings.Contains(strings.ToLower(res.Namespace), query) ||
+			strings.Contains(strings.ToLower(res.Node), query) ||
+			strings.Contains(strings.ToLower(res.Status), query) ||
+			strings.Contains(strings.ToLower(res.Extra), query) {
+			filtered = append(filtered, res)
+		}
+	}
+
+	return filtered
+}
+
+// renderSearchInput renders the search input field with match counter.
+func (m Model) renderSearchInput(b *strings.Builder) {
+	promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	resultStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+
+	b.WriteString(promptStyle.Render("/"))
+	b.WriteString(m.searchInput.View())
+
+	// Show result count while typing
+	if len(m.searchInput.Value()) > 0 {
+		matchCount := len(m.filteredResources)
+		totalCount := len(m.resources)
+		b.WriteString("  ")
+		b.WriteString(resultStyle.Render(fmt.Sprintf("(%d/%d matches)", matchCount, totalCount)))
+	}
+}
