@@ -395,14 +395,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 
-				if len(m.resources) == 0 {
+				// Use filtered resources if search is active, otherwise use all resources
+				displayResources := m.resources
+				if m.activeSearchQuery != "" || m.searchQuery != "" {
+					displayResources = m.filteredResources
+				}
+
+				if len(displayResources) == 0 {
 					return m, nil
 				}
 				actualIdx := m.paginator.Page*m.paginator.PerPage + m.table.Cursor()
-				if actualIdx >= len(m.resources) {
+				if actualIdx >= len(displayResources) {
 					return m, nil
 				}
-				selectedResource := m.resources[actualIdx]
+				selectedResource := displayResources[actualIdx]
 
 				memento := m.saveToMemento(selectedResource.Name, selectedResource.Namespace)
 				m.navigationHistory.Push(memento)
