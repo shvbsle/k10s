@@ -46,6 +46,7 @@ type Model struct {
 	resources          []k8s.Resource
 	filteredResources  []k8s.Resource
 	logLines           []k8s.LogLine
+	filteredLogLines   []k8s.LogLine
 	resourceType       k8s.ResourceType
 	clusterInfo        *k8s.ClusterInfo
 	currentNamespace   string
@@ -247,6 +248,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resources = nil // Clear resources when loading logs
 		m.resourceType = k8s.ResourceLogs
 		m.currentNamespace = msg.namespace
+		// Reapply active search filter if one exists
+		if m.activeSearchQuery != "" {
+			m.filteredLogLines = m.filterLogLines(m.activeSearchQuery)
+		} else {
+			m.filteredLogLines = m.logLines
+		}
 		if m.width > 0 {
 			totalWidth := m.width - 7
 			if totalWidth < 90 {
@@ -308,7 +315,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter":
 				// Make search sticky - keep the filter active
 				m.activeSearchQuery = m.searchInput.Value()
-				m.filteredResources = m.filterResources(m.activeSearchQuery)
+				if m.resourceType == k8s.ResourceLogs {
+					m.filteredLogLines = m.filterLogLines(m.activeSearchQuery)
+				} else {
+					m.filteredResources = m.filterResources(m.activeSearchQuery)
+				}
 				m.searchInput.Reset()
 				m.searchQuery = ""
 				m.viewMode = ViewModeNormal
@@ -323,9 +334,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			default:
 				m.searchInput, cmd = m.searchInput.Update(msg)
-				// Update search query and filter resources in real-time
+				// Update search query and filter resources/logs in real-time
 				m.searchQuery = m.searchInput.Value()
-				m.filteredResources = m.filterResources(m.searchQuery)
+				if m.resourceType == k8s.ResourceLogs {
+					m.filteredLogLines = m.filterLogLines(m.searchQuery)
+				} else {
+					m.filteredResources = m.filterResources(m.searchQuery)
+				}
 				m.updateTableData()
 				return m, cmd
 			}
@@ -398,7 +413,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// First check if there's an active search to clear
 				if m.activeSearchQuery != "" {
 					m.activeSearchQuery = ""
-					m.filteredResources = m.resources
+					if m.resourceType == k8s.ResourceLogs {
+						m.filteredLogLines = m.logLines
+					} else {
+						m.filteredResources = m.resources
+					}
 					m.paginator.Page = 0
 					m.updateTableData()
 					return m, nil

@@ -315,6 +315,27 @@ func (m Model) filterResources(query string) []k8s.Resource {
 	return filtered
 }
 
+// filterLogLines filters log lines based on the search query.
+// It searches in the Content and Timestamp fields.
+func (m Model) filterLogLines(query string) []k8s.LogLine {
+	if query == "" {
+		return m.logLines
+	}
+
+	query = strings.ToLower(query)
+	var filtered []k8s.LogLine
+
+	for _, logLine := range m.logLines {
+		// Search in content and timestamp fields
+		if strings.Contains(strings.ToLower(logLine.Content), query) ||
+			strings.Contains(strings.ToLower(logLine.Timestamp), query) {
+			filtered = append(filtered, logLine)
+		}
+	}
+
+	return filtered
+}
+
 // renderSearchInput renders the search input field with match counter.
 func (m Model) renderSearchInput(b *strings.Builder) {
 	promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
@@ -325,8 +346,14 @@ func (m Model) renderSearchInput(b *strings.Builder) {
 
 	// Show result count while typing
 	if len(m.searchInput.Value()) > 0 {
-		matchCount := len(m.filteredResources)
-		totalCount := len(m.resources)
+		var matchCount, totalCount int
+		if m.resourceType == k8s.ResourceLogs {
+			matchCount = len(m.filteredLogLines)
+			totalCount = len(m.logLines)
+		} else {
+			matchCount = len(m.filteredResources)
+			totalCount = len(m.resources)
+		}
 		b.WriteString("  ")
 		b.WriteString(resultStyle.Render(fmt.Sprintf("(%d/%d matches)", matchCount, totalCount)))
 	}
