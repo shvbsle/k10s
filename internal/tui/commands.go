@@ -286,3 +286,75 @@ func (m Model) loadLogsForContainer(podName string, namespace string, containerN
 		}
 	}
 }
+
+// filterResources filters resources based on the search query.
+// It searches across the Name, Namespace, Node, Status, and Extra fields.
+//
+// Note: This performs client-side filtering for maximum flexibility. Kubernetes
+// FieldSelector only supports exact matches on specific fields (like metadata.name),
+// not substring matching, so client-side filtering provides a better UX.
+func (m Model) filterResources(query string) []k8s.Resource {
+	if query == "" {
+		return m.resources
+	}
+
+	query = strings.ToLower(query)
+	var filtered []k8s.Resource
+
+	for _, res := range m.resources {
+		// Search in name, namespace, node, status, and extra fields
+		if strings.Contains(strings.ToLower(res.Name), query) ||
+			strings.Contains(strings.ToLower(res.Namespace), query) ||
+			strings.Contains(strings.ToLower(res.Node), query) ||
+			strings.Contains(strings.ToLower(res.Status), query) ||
+			strings.Contains(strings.ToLower(res.Extra), query) {
+			filtered = append(filtered, res)
+		}
+	}
+
+	return filtered
+}
+
+// filterLogLines filters log lines based on the search query.
+// It searches in the Content and Timestamp fields.
+func (m Model) filterLogLines(query string) []k8s.LogLine {
+	if query == "" {
+		return m.logLines
+	}
+
+	query = strings.ToLower(query)
+	var filtered []k8s.LogLine
+
+	for _, logLine := range m.logLines {
+		// Search in content and timestamp fields
+		if strings.Contains(strings.ToLower(logLine.Content), query) ||
+			strings.Contains(strings.ToLower(logLine.Timestamp), query) {
+			filtered = append(filtered, logLine)
+		}
+	}
+
+	return filtered
+}
+
+// renderSearchInput renders the search input field with match counter.
+func (m Model) renderSearchInput(b *strings.Builder) {
+	promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	resultStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+
+	b.WriteString(promptStyle.Render("/"))
+	b.WriteString(m.searchInput.View())
+
+	// Show result count while typing
+	if len(m.searchInput.Value()) > 0 {
+		var matchCount, totalCount int
+		if m.resourceType == k8s.ResourceLogs {
+			matchCount = len(m.filteredLogLines)
+			totalCount = len(m.logLines)
+		} else {
+			matchCount = len(m.filteredResources)
+			totalCount = len(m.resources)
+		}
+		b.WriteString("  ")
+		b.WriteString(resultStyle.Render(fmt.Sprintf("(%d/%d matches)", matchCount, totalCount)))
+	}
+}
