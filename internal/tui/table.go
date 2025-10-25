@@ -14,6 +14,7 @@ import (
 
 // wrapTextAtWordBoundary wraps text at word boundaries when possible.
 // Falls back to truncation for words longer than maxWidth.
+// Preserves original whitespace formatting.
 func wrapTextAtWordBoundary(text string, maxWidth int) []string {
 	if maxWidth <= 0 || runewidth.StringWidth(text) <= maxWidth {
 		return []string{text}
@@ -22,46 +23,69 @@ func wrapTextAtWordBoundary(text string, maxWidth int) []string {
 	var lines []string
 	currentLine := ""
 	currentWidth := 0
+	i := 0
+	textRunes := []rune(text)
 
-	words := strings.Fields(text)
-	for _, word := range words {
-		wordWidth := runewidth.StringWidth(word)
-		spaceWidth := 1
-
-		// Check if word fits on current line
-		neededWidth := wordWidth
-		if currentWidth > 0 {
-			neededWidth += spaceWidth
+	for i < len(textRunes) {
+		// Skip leading whitespace for new lines (except first line)
+		if currentWidth == 0 && len(lines) > 0 {
+			for i < len(textRunes) && textRunes[i] == ' ' {
+				i++
+			}
+			if i >= len(textRunes) {
+				break
+			}
 		}
 
-		if currentWidth+neededWidth <= maxWidth {
-			// Word fits
-			if currentWidth > 0 {
-				currentLine += " "
-				currentWidth += spaceWidth
-			}
-			currentLine += word
-			currentWidth += wordWidth
-		} else {
-			// Word doesn't fit
-			if currentLine != "" {
-				lines = append(lines, currentLine)
-			}
+		// Collect whitespace before the word (preserve spacing)
+		whitespaceStart := i
+		for i < len(textRunes) && textRunes[i] == ' ' {
+			i++
+		}
+		whitespace := string(textRunes[whitespaceStart:i])
+		whitespaceWidth := runewidth.StringWidth(whitespace)
 
-			// Start new line with this word
-			if wordWidth <= maxWidth {
-				currentLine = word
-				currentWidth = wordWidth
-			} else {
-				// Word too long - truncate with ellipsis
-				currentLine = runewidth.Truncate(word, maxWidth, "…")
-				currentWidth = maxWidth
-			}
+		// Collect the word
+		wordStart := i
+		for i < len(textRunes) && textRunes[i] != ' ' {
+			i++
+		}
+		word := string(textRunes[wordStart:i])
+		wordWidth := runewidth.StringWidth(word)
+
+		// Check if whitespace + word fits on current line
+		neededWidth := whitespaceWidth + wordWidth
+		if currentWidth > 0 && currentWidth+neededWidth > maxWidth {
+			// Doesn't fit - save current line and start new one
+			lines = append(lines, currentLine)
+			currentLine = ""
+			currentWidth = 0
+			whitespace = "" // Don't carry over leading whitespace to new line
+			whitespaceWidth = 0
+		}
+
+		// Add whitespace and word to current line
+		if wordWidth > 0 {
+			currentLine += whitespace + word
+			currentWidth += whitespaceWidth + wordWidth
+		}
+
+		// Handle words longer than maxWidth
+		if currentWidth > maxWidth && currentLine == whitespace+word {
+			// This single word is too long, truncate it
+			currentLine = runewidth.Truncate(currentLine, maxWidth, "…")
+			lines = append(lines, currentLine)
+			currentLine = ""
+			currentWidth = 0
 		}
 	}
 
 	if currentLine != "" {
 		lines = append(lines, currentLine)
+	}
+
+	if len(lines) == 0 {
+		lines = []string{""}
 	}
 
 	return lines
@@ -124,8 +148,9 @@ func (m *Model) updateTableDataForLogs() {
 
 // formatLogLine formats a single log line for table display with optional wrapping.
 func (m *Model) formatLogLine(logLine k8s.LogLine) []table.Row {
-	// Format line number with content
-	logContent := fmt.Sprintf("%4d: %s", logLine.LineNum, logLine.Content)
+	// Format line number prefix (e.g., "   1: ")
+	lineNumPrefix := fmt.Sprintf("%4d: ", logLine.LineNum)
+	lineNumWidth := runewidth.StringWidth(lineNumPrefix)
 
 	var timestamp string
 	var timestampWidth int
@@ -143,21 +168,26 @@ func (m *Model) formatLogLine(logLine k8s.LogLine) []table.Row {
 		columns := m.table.Columns()
 		logWidth := columns[0].Width
 
-		// Calculate available width for content
-		availableWidth := logWidth - timestampWidth
+		// Calculate available width for actual log content
+		// Account for timestamp, line number prefix, and continuation marker
+		prefixWidth := timestampWidth + lineNumWidth
+		availableWidth := logWidth - prefixWidth
 		if availableWidth < 10 {
 			availableWidth = 10
 		}
 
-		wrappedLines := wrapTextAtWordBoundary(logContent, availableWidth)
+		// Wrap only the log content (without line number prefix)
+		wrappedLines := wrapTextAtWordBoundary(logLine.Content, availableWidth)
 
 		for j, line := range wrappedLines {
 			var displayLine string
 			if j == 0 {
-				displayLine = timestamp + line
+				// First line: timestamp + line number + content
+				displayLine = timestamp + lineNumPrefix + line
 			} else {
-				indent := strings.Repeat(" ", timestampWidth)
-				displayLine = indent + "↳ " + line
+				// Continuation lines: indent to align with first line's content
+				indent := strings.Repeat(" ", prefixWidth)
+				displayLine = indent + line
 			}
 			rows = append(rows, table.Row{
 				displayLine,
@@ -165,7 +195,7 @@ func (m *Model) formatLogLine(logLine k8s.LogLine) []table.Row {
 			})
 		}
 	} else {
-		displayLine := timestamp + logContent
+		displayLine := timestamp + lineNumPrefix + logLine.Content
 		rows = append(rows, table.Row{
 			displayLine,
 			"", "", "", "", "",
