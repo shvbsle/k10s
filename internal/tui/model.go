@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/paginator"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -54,6 +55,7 @@ type Model struct {
 	height             int
 	err                error
 	commandErr         string
+	commandSuccess     string
 }
 
 type errMsg struct{ err error }
@@ -76,6 +78,12 @@ type commandErrMsg struct {
 }
 
 type clearCommandErrMsg struct{}
+
+type commandSuccessMsg struct {
+	message string
+}
+
+type clearCommandSuccessMsg struct{}
 
 // New creates a new TUI model with the provided configuration and Kubernetes client.
 // The client may be nil or disconnected - the TUI will handle this gracefully and
@@ -125,9 +133,16 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 		clusterInfo, _ = client.GetClusterInfo()
 	}
 
-	suggestions := []string{"pods", "nodes", "namespaces", "services", "ns", "quit", "q", "reconnect", "r"}
+	suggestions := []string{"pods", "nodes", "namespaces", "services", "ns", "quit", "q", "reconnect", "r", "cplogs", "cp"}
 
 	keys := newKeyMap()
+
+	// Disable log-specific keys by default (enabled only in logs view)
+	keys.Fullscreen.SetEnabled(false)
+	keys.Autoscroll.SetEnabled(false)
+	keys.ToggleTime.SetEnabled(false)
+	keys.WrapText.SetEnabled(false)
+	keys.CopyLogs.SetEnabled(false)
 
 	h := help.New()
 	h.ShowAll = true // Show full help by default
@@ -167,6 +182,30 @@ func (m Model) Init() tea.Cmd {
 		)
 	}
 	return nil
+}
+
+// ShortHelp returns context-aware short help based on current view.
+func (m Model) ShortHelp() []key.Binding {
+	return []key.Binding{m.keys.Up, m.keys.Down, m.keys.Enter, m.keys.Back, m.keys.Command, m.keys.Quit}
+}
+
+// FullHelp returns context-aware full help based on current view.
+// Log-specific keybindings are only shown when viewing logs.
+func (m Model) FullHelp() [][]key.Binding {
+	base := [][]key.Binding{
+		{m.keys.Up, m.keys.Down, m.keys.GotoTop, m.keys.GotoBottom},
+		{m.keys.Left, m.keys.Right, m.keys.AllNS, m.keys.DefaultNS},
+		{m.keys.Enter, m.keys.Back, m.keys.Command, m.keys.Quit},
+	}
+
+	// Only show log-specific keys when viewing logs
+	if m.resourceType == k8s.ResourceLogs {
+		base = append(base, []key.Binding{
+			m.keys.Fullscreen, m.keys.Autoscroll, m.keys.ToggleTime, m.keys.WrapText, m.keys.CopyLogs,
+		})
+	}
+
+	return base
 }
 
 // Update handles messages and updates the model state accordingly.
@@ -214,6 +253,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logLines = nil // Clear log lines when loading resources
 		m.resourceType = msg.resType
 		m.currentNamespace = msg.namespace
+
+		// Update key bindings for new resource type
+		m.updateKeysForResourceType()
+
 		if m.width > 0 {
 			totalWidth := m.width - 7
 			if totalWidth < 90 {
@@ -229,6 +272,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resources = nil // Clear resources when loading logs
 		m.resourceType = k8s.ResourceLogs
 		m.currentNamespace = msg.namespace
+
+		// Update key bindings for logs view
+		m.updateKeysForResourceType()
+
 		if m.width > 0 {
 			totalWidth := m.width - 7
 			if totalWidth < 90 {
@@ -259,6 +306,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clearCommandErrMsg:
 		m.commandErr = ""
 		return m, nil
+
+	case commandSuccessMsg:
+		m.commandSuccess = msg.message
+		// Clear the success message after 5 seconds
+		return m, tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+			return clearCommandSuccessMsg{}
+		})
+
+	case clearCommandSuccessMsg:
+		m.commandSuccess = ""
+		return m, nil
+
+	case logsCopiedMsg:
+		if msg.success {
+			m.commandSuccess = msg.message
+			return m, tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+				return clearCommandSuccessMsg{}
+			})
+		} else {
+			m.commandErr = msg.message
+			return m, tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+				return clearCommandErrMsg{}
+			})
+		}
 
 	case tea.KeyMsg:
 		if m.viewMode == ViewModeCommand {
@@ -490,11 +561,20 @@ func (m Model) View() string {
 		commandErrorLines = 2 // Error line + padding
 	}
 
-	// Fill remaining height to push command palette/error to bottom
+	// Calculate command success height (if shown)
+	commandSuccessLines := 0
+	var commandSuccessContent string
+	if m.commandSuccess != "" {
+		successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
+		commandSuccessContent = successStyle.Render(fmt.Sprintf("✓ %s", m.commandSuccess))
+		commandSuccessLines = 2 // Success line + padding
+	}
+
+	// Fill remaining height to push command palette/error/success to bottom
 	output := b.String()
 	if m.height > 0 {
 		renderedLines := strings.Count(output, "\n") + 1
-		totalNeeded := m.height - commandPaletteLines - commandErrorLines
+		totalNeeded := m.height - commandPaletteLines - commandErrorLines - commandSuccessLines
 
 		if renderedLines < totalNeeded {
 			remainingLines := totalNeeded - renderedLines
@@ -506,6 +586,8 @@ func (m Model) View() string {
 		output += "\n" + commandPaletteContent + "\n"
 	} else if m.commandErr != "" {
 		output += "\n" + commandErrorContent + "\n"
+	} else if m.commandSuccess != "" {
+		output += "\n" + commandSuccessContent + "\n"
 	}
 
 	return output
@@ -572,6 +654,9 @@ func (m *Model) restoreFromMemento(memento *ModelMemento) {
 	m.currentNamespace = memento.currentNamespace
 	m.err = memento.err
 	m.logView = memento.logView
+
+	// Update key bindings for restored resource type
+	m.updateKeysForResourceType()
 
 	// Update pagination
 	m.paginator.Page = memento.paginatorPage

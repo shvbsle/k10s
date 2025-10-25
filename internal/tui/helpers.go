@@ -20,3 +20,31 @@ func (m Model) getTotalItems() int {
 	}
 	return len(m.resources)
 }
+
+func canDrillDown(resType k8s.ResourceType) bool {
+	switch resType {
+	case k8s.ResourceNamespaces, k8s.ResourceLogs:
+		return false
+	default:
+		return true
+	}
+}
+
+func (m *Model) updateKeysForResourceType() {
+	isLogs := m.resourceType == k8s.ResourceLogs
+
+	// Enable/disable log-specific keys
+	m.keys.Fullscreen.SetEnabled(isLogs)
+	m.keys.Autoscroll.SetEnabled(isLogs)
+	m.keys.ToggleTime.SetEnabled(isLogs)
+	m.keys.WrapText.SetEnabled(isLogs)
+	m.keys.CopyLogs.SetEnabled(isLogs)
+
+	// Enable drill-down only for drill-down-capable resources
+	m.keys.Enter.SetEnabled(canDrillDown(m.resourceType))
+
+	// Enable namespace keys only for namespace-aware resources
+	canUseNS := isNamespaceAware(m.resourceType)
+	m.keys.AllNS.SetEnabled(canUseNS)
+	m.keys.DefaultNS.SetEnabled(canUseNS)
+}

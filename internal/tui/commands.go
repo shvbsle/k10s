@@ -39,6 +39,14 @@ func (m Model) executeCommand(command string) tea.Cmd {
 	case "services", "service", "svc":
 		namespace := m.parseNamespaceArgs(args)
 		return m.requireConnection(m.loadResourcesWithNamespace(k8s.ResourceServices, namespace))
+	case "cplogs", "cp":
+		// For cplogs, we need to preserve case in file paths, so use original args
+		originalParts := strings.Fields(originalCommand)
+		originalArgs := []string{}
+		if len(originalParts) > 1 {
+			originalArgs = originalParts[1:]
+		}
+		return m.executeCplogsCommand(originalArgs)
 	default:
 		return m.showCommandError(fmt.Sprintf("did not recognize command `%s`", originalCommand))
 	}
