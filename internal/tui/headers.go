@@ -47,7 +47,7 @@ func (m Model) renderCompactHeader(b *strings.Builder) {
 	}
 
 	infoBlock := statusIndicator + " " + infoContent.String()
-	helpBlock := m.help.View(m.keys)
+	helpBlock := m.help.View(m)
 
 	// Apply easter egg colors! 🎃🎄
 	easterEgg := detectEasterEgg()
@@ -147,7 +147,7 @@ func (m Model) renderFullHeader(b *strings.Builder) {
 	infoContent.WriteString(labelStyle.Render("MEM: ") + errorStyle.Render("n/a"))
 
 	infoBlock := statusIndicator + " " + infoContent.String()
-	helpBlock := m.help.View(m.keys)
+	helpBlock := m.help.View(m)
 
 	// Apply easter egg colors! 🎃🎄
 	easterEgg := detectEasterEgg()
