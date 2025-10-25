@@ -358,8 +358,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			// Handle keys explicitly to prevent double-processing
 			switch msg.String() {
-			case "q":
-				return m, tea.Quit
 			case ":":
 				m.viewMode = ViewModeCommand
 				m.commandInput.Focus()
