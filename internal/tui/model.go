@@ -56,6 +56,7 @@ type Model struct {
 	err                error
 	commandErr         string
 	commandSuccess     string
+	shouldLaunchGame   bool
 }
 
 type errMsg struct{ err error }
@@ -84,6 +85,8 @@ type commandSuccessMsg struct {
 }
 
 type clearCommandSuccessMsg struct{}
+
+type launchGameMsg struct{}
 
 // New creates a new TUI model with the provided configuration and Kubernetes client.
 // The client may be nil or disconnected - the TUI will handle this gracefully and
@@ -125,7 +128,7 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 		clusterInfo, _ = client.GetClusterInfo()
 	}
 
-	suggestions := []string{"pods", "nodes", "namespaces", "services", "ns", "quit", "q", "reconnect", "r", "cplogs", "cp"}
+	suggestions := []string{"pods", "nodes", "namespaces", "services", "ns", "quit", "q", "reconnect", "r", "cplogs", "cp", "play", "game", "kitten"}
 
 	keys := newKeyMap()
 
@@ -174,6 +177,11 @@ func (m Model) Init() tea.Cmd {
 		)
 	}
 	return nil
+}
+
+// ShouldLaunchGame returns true if the game should be launched after TUI exits.
+func (m Model) ShouldLaunchGame() bool {
+	return m.shouldLaunchGame
 }
 
 // ShortHelp returns context-aware short help based on current view.
@@ -316,6 +324,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clearCommandSuccessMsg:
 		m.commandSuccess = ""
 		return m, nil
+
+	case launchGameMsg:
+		m.shouldLaunchGame = true
+		return m, tea.Quit
 
 	case logsCopiedMsg:
 		if msg.success {
