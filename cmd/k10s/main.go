@@ -8,6 +8,7 @@ import (
 	"github.com/adrg/xdg"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/shvbsle/k10s/internal/config"
+	"github.com/shvbsle/k10s/internal/game"
 	"github.com/shvbsle/k10s/internal/k8s"
 	"github.com/shvbsle/k10s/internal/tui"
 )
@@ -73,7 +74,16 @@ func main() {
 		tea.WithMouseCellMotion(),
 	)
 
-	if _, err := p.Run(); err != nil {
+	finalModel, err := p.Run()
+	if err != nil {
 		log.Fatal(err)
+	}
+
+	// Check if we should launch the game
+	if finalModel != nil {
+		if model, ok := finalModel.(tui.Model); ok && model.ShouldLaunchGame() {
+			log.Printf("Launching Kitten Climber game...")
+			game.LaunchGame()
+		}
 	}
 }

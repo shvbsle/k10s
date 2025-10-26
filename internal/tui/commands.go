@@ -29,6 +29,8 @@ func (m Model) executeCommand(command string) tea.Cmd {
 		return tea.Quit
 	case "reconnect", "r":
 		return m.reconnectCmd()
+	case "play", "game", "kitten":
+		return m.launchGameCmd()
 	case "pods", "pod", "po":
 		namespace := m.parseNamespaceArgs(args)
 		return m.requireConnection(m.loadResourcesWithNamespace(k8s.ResourcePods, namespace))
@@ -155,6 +157,14 @@ func (m Model) reconnectCmd() tea.Cmd {
 			resType:   k8s.ResourcePods,
 			namespace: "", // All namespaces after reconnect
 		}
+	}
+}
+
+// launchGameCmd creates a command that signals the TUI to quit and launch the game.
+func (m Model) launchGameCmd() tea.Cmd {
+	return func() tea.Msg {
+		log.Printf("TUI: Launching game...")
+		return launchGameMsg{}
 	}
 }
 
