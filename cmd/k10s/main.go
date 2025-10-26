@@ -68,22 +68,34 @@ func main() {
 	log.Printf("Starting TUI...")
 	m := tui.New(cfg, client)
 
-	p := tea.NewProgram(
-		m,
-		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
-	)
+	// Main loop to support returning to k10s after game
+	for {
+		p := tea.NewProgram(
+			m,
+			tea.WithAltScreen(),
+			tea.WithMouseCellMotion(),
+		)
 
-	finalModel, err := p.Run()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Check if we should launch the game
-	if finalModel != nil {
-		if model, ok := finalModel.(tui.Model); ok && model.ShouldLaunchGame() {
-			log.Printf("Launching Kitten Climber game...")
-			game.LaunchGame()
+		finalModel, err := p.Run()
+		if err != nil {
+			log.Fatal(err)
 		}
+
+		// Check if we should launch the game
+		if finalModel != nil {
+			if model, ok := finalModel.(tui.Model); ok && model.ShouldLaunchGame() {
+				log.Printf("Launching Kitten Climber game...")
+				game.LaunchGame()
+
+				// After game ends, restart k10s TUI
+				log.Printf("Returning to k10s TUI...")
+				m = tui.New(cfg, client)
+				continue
+			}
+		}
+
+		// User quit k10s normally, exit loop
+		log.Printf("k10s exiting...")
+		break
 	}
 }

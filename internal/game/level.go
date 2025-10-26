@@ -8,9 +8,12 @@ type GameLevel struct {
 	score     int
 	totalFish int
 	kitten    *Kitten
+	screen    *tl.Screen
+	built     bool
+	fish      []*Fish
 }
 
-func NewGameLevel(levelNum int) *GameLevel {
+func NewGameLevel(levelNum int, screen *tl.Screen) *GameLevel {
 	level := &GameLevel{
 		BaseLevel: tl.NewBaseLevel(tl.Cell{
 			Bg: ColorBackground,
@@ -20,51 +23,78 @@ func NewGameLevel(levelNum int) *GameLevel {
 		levelNum:  levelNum,
 		score:     0,
 		totalFish: 0,
+		screen:    screen,
+		built:     false,
 	}
 
-	level.buildLevel()
 	return level
 }
 
-func (l *GameLevel) buildLevel() {
-	switch l.levelNum {
-	case 1:
-		l.buildLevel1()
-	case 2:
-		l.buildLevel2()
-	case 3:
-		l.buildLevel3()
-	default:
-		l.buildLevel1()
+func (l *GameLevel) ensureBuilt() {
+	l.ensureBuiltWithFish(nil)
+}
+
+func (l *GameLevel) ensureBuiltWithFish(collectedFish []bool) {
+	if !l.built {
+		l.built = true
+		switch l.levelNum {
+		case 1:
+			l.buildLevel1(collectedFish)
+		case 2:
+			l.buildLevel2(collectedFish)
+		case 3:
+			l.buildLevel3(collectedFish)
+		default:
+			l.buildLevel1(collectedFish)
+		}
 	}
 }
 
-func (l *GameLevel) buildLevel1() {
-	ground := NewPlatform(0, 22, GameWidth, PlatformNode)
+func (l *GameLevel) Draw(screen *tl.Screen) {
+	l.ensureBuilt()
+	l.BaseLevel.Draw(screen)
+}
+
+func (l *GameLevel) buildLevel1(collectedFish []bool) {
+	screenWidth, screenHeight := l.screen.Size()
+
+	groundY := screenHeight - 2
+	ground := NewPlatform(0, groundY, screenWidth, PlatformNode)
 	l.AddEntity(ground)
 
-	platform1 := NewPlatform(15, 18, 12, PlatformPod)
+	platform1 := NewPlatform(screenWidth*15/80, screenHeight-6, 12, PlatformPod)
 	l.AddEntity(platform1)
 
-	platform2 := NewPlatform(35, 14, 12, PlatformPod)
+	platform2 := NewPlatform(screenWidth*35/80, screenHeight-10, 12, PlatformPod)
 	l.AddEntity(platform2)
 
-	platform3 := NewPlatform(55, 10, 12, PlatformService)
+	platform3 := NewPlatform(screenWidth*55/80, screenHeight-14, 12, PlatformService)
 	l.AddEntity(platform3)
 
-	fish1 := NewFish(20, 16, l.incrementScore)
+	l.fish = make([]*Fish, 0)
+
+	fish1 := NewFish(screenWidth*20/80, screenHeight-8, l.incrementScore)
 	l.AddEntity(fish1)
+	l.fish = append(l.fish, fish1)
 	l.totalFish++
 
-	fish2 := NewFish(40, 12, l.incrementScore)
+	fish2 := NewFish(screenWidth*40/80, screenHeight-12, l.incrementScore)
 	l.AddEntity(fish2)
+	l.fish = append(l.fish, fish2)
 	l.totalFish++
 
-	fish3 := NewFish(60, 8, l.incrementScore)
+	fish3 := NewFish(screenWidth*60/80, screenHeight-16, l.incrementScore)
 	l.AddEntity(fish3)
+	l.fish = append(l.fish, fish3)
 	l.totalFish++
 
-	l.kitten = NewKitten(5, 19, l.BaseLevel)
+	for i, collected := range collectedFish {
+		if i < len(l.fish) && collected {
+			l.fish[i].collected = true
+		}
+	}
+
+	l.kitten = NewKitten(5, groundY-3, l.BaseLevel, l.screen)
 	l.AddEntity(l.kitten)
 
 	levelText := tl.NewText(2, 1, "Level 1: Tutorial - Collect all fish!", ColorText, ColorBackground)
@@ -74,46 +104,62 @@ func (l *GameLevel) buildLevel1() {
 	l.AddEntity(scoreText)
 }
 
-func (l *GameLevel) buildLevel2() {
-	ground := NewPlatform(0, 22, GameWidth, PlatformNode)
+func (l *GameLevel) buildLevel2(collectedFish []bool) {
+	screenWidth, screenHeight := l.screen.Size()
+
+	groundY := screenHeight - 2
+	ground := NewPlatform(0, groundY, screenWidth, PlatformNode)
 	l.AddEntity(ground)
 
-	platform1 := NewPlatform(10, 19, 10, PlatformPod)
+	platform1 := NewPlatform(screenWidth*10/80, screenHeight-5, 10, PlatformPod)
 	l.AddEntity(platform1)
 
-	platform2 := NewPlatform(25, 16, 10, PlatformPod)
+	platform2 := NewPlatform(screenWidth*25/80, screenHeight-8, 10, PlatformPod)
 	l.AddEntity(platform2)
 
-	platform3 := NewPlatform(40, 13, 10, PlatformPod)
+	platform3 := NewPlatform(screenWidth*40/80, screenHeight-11, 10, PlatformPod)
 	l.AddEntity(platform3)
 
-	platform4 := NewPlatform(55, 10, 10, PlatformService)
+	platform4 := NewPlatform(screenWidth*55/80, screenHeight-14, 10, PlatformService)
 	l.AddEntity(platform4)
 
-	platform5 := NewPlatform(30, 7, 15, PlatformService)
+	platform5 := NewPlatform(screenWidth*30/80, screenHeight-17, 15, PlatformService)
 	l.AddEntity(platform5)
 
-	fish1 := NewFish(13, 17, l.incrementScore)
+	l.fish = make([]*Fish, 0)
+
+	fish1 := NewFish(screenWidth*13/80, screenHeight-7, l.incrementScore)
 	l.AddEntity(fish1)
+	l.fish = append(l.fish, fish1)
 	l.totalFish++
 
-	fish2 := NewFish(28, 14, l.incrementScore)
+	fish2 := NewFish(screenWidth*28/80, screenHeight-10, l.incrementScore)
 	l.AddEntity(fish2)
+	l.fish = append(l.fish, fish2)
 	l.totalFish++
 
-	fish3 := NewFish(43, 11, l.incrementScore)
+	fish3 := NewFish(screenWidth*43/80, screenHeight-13, l.incrementScore)
 	l.AddEntity(fish3)
+	l.fish = append(l.fish, fish3)
 	l.totalFish++
 
-	fish4 := NewFish(58, 8, l.incrementScore)
+	fish4 := NewFish(screenWidth*58/80, screenHeight-16, l.incrementScore)
 	l.AddEntity(fish4)
+	l.fish = append(l.fish, fish4)
 	l.totalFish++
 
-	fish5 := NewFish(37, 5, l.incrementScore)
+	fish5 := NewFish(screenWidth*37/80, screenHeight-19, l.incrementScore)
 	l.AddEntity(fish5)
+	l.fish = append(l.fish, fish5)
 	l.totalFish++
 
-	l.kitten = NewKitten(3, 19, l.BaseLevel)
+	for i, collected := range collectedFish {
+		if i < len(l.fish) && collected {
+			l.fish[i].collected = true
+		}
+	}
+
+	l.kitten = NewKitten(3, groundY-3, l.BaseLevel, l.screen)
 	l.AddEntity(l.kitten)
 
 	levelText := tl.NewText(2, 1, "Level 2: The Cluster - Navigate the nodes!", ColorText, ColorBackground)
@@ -123,53 +169,70 @@ func (l *GameLevel) buildLevel2() {
 	l.AddEntity(scoreText)
 }
 
-func (l *GameLevel) buildLevel3() {
-	ground := NewPlatform(0, 22, GameWidth, PlatformNode)
+func (l *GameLevel) buildLevel3(collectedFish []bool) {
+	screenWidth, screenHeight := l.screen.Size()
+
+	groundY := screenHeight - 2
+	ground := NewPlatform(0, groundY, screenWidth, PlatformNode)
 	l.AddEntity(ground)
 
-	platform1 := NewPlatform(8, 19, 10, PlatformPod)
+	platform1 := NewPlatform(screenWidth*8/80, screenHeight-5, 10, PlatformPod)
 	l.AddEntity(platform1)
 
-	platform2 := NewPlatform(22, 16, 10, PlatformPod)
+	platform2 := NewPlatform(screenWidth*22/80, screenHeight-8, 10, PlatformPod)
 	l.AddEntity(platform2)
 
-	platform3 := NewPlatform(36, 13, 10, PlatformService)
+	platform3 := NewPlatform(screenWidth*36/80, screenHeight-11, 10, PlatformService)
 	l.AddEntity(platform3)
 
-	platform4 := NewPlatform(50, 10, 10, PlatformService)
+	platform4 := NewPlatform(screenWidth*50/80, screenHeight-14, 10, PlatformService)
 	l.AddEntity(platform4)
 
-	platform5 := NewPlatform(64, 7, 10, PlatformService)
+	platform5 := NewPlatform(screenWidth*64/80, screenHeight-17, 10, PlatformService)
 	l.AddEntity(platform5)
 
-	controlPlane := NewPlatform(30, 4, 20, PlatformControlPlane)
+	controlPlane := NewPlatform(screenWidth*30/80, screenHeight-20, 20, PlatformControlPlane)
 	l.AddEntity(controlPlane)
 
-	fish1 := NewFish(11, 17, l.incrementScore)
+	l.fish = make([]*Fish, 0)
+
+	fish1 := NewFish(screenWidth*11/80, screenHeight-7, l.incrementScore)
 	l.AddEntity(fish1)
+	l.fish = append(l.fish, fish1)
 	l.totalFish++
 
-	fish2 := NewFish(25, 14, l.incrementScore)
+	fish2 := NewFish(screenWidth*25/80, screenHeight-10, l.incrementScore)
 	l.AddEntity(fish2)
+	l.fish = append(l.fish, fish2)
 	l.totalFish++
 
-	fish3 := NewFish(39, 11, l.incrementScore)
+	fish3 := NewFish(screenWidth*39/80, screenHeight-13, l.incrementScore)
 	l.AddEntity(fish3)
+	l.fish = append(l.fish, fish3)
 	l.totalFish++
 
-	fish4 := NewFish(53, 8, l.incrementScore)
+	fish4 := NewFish(screenWidth*53/80, screenHeight-16, l.incrementScore)
 	l.AddEntity(fish4)
+	l.fish = append(l.fish, fish4)
 	l.totalFish++
 
-	fish5 := NewFish(67, 5, l.incrementScore)
+	fish5 := NewFish(screenWidth*67/80, screenHeight-19, l.incrementScore)
 	l.AddEntity(fish5)
+	l.fish = append(l.fish, fish5)
 	l.totalFish++
 
-	fish6 := NewFish(38, 2, l.incrementScore)
+	fish6 := NewFish(screenWidth*38/80, screenHeight-22, l.incrementScore)
 	l.AddEntity(fish6)
+	l.fish = append(l.fish, fish6)
 	l.totalFish++
 
-	l.kitten = NewKitten(3, 19, l.BaseLevel)
+	for i, collected := range collectedFish {
+		if i < len(l.fish) && collected {
+			l.fish[i].collected = true
+		}
+	}
+
+	l.kitten = NewKitten(3, groundY-3, l.BaseLevel, l.screen)
 	l.AddEntity(l.kitten)
 
 	levelText := tl.NewText(2, 1, "Level 3: Reach the Control Plane!", ColorText, ColorBackground)
@@ -187,10 +250,52 @@ func (l *GameLevel) GetScore() int {
 	return l.score
 }
 
+func (l *GameLevel) SetScore(score int) {
+	l.score = score
+}
+
 func (l *GameLevel) GetTotalFish() int {
 	return l.totalFish
 }
 
 func (l *GameLevel) IsComplete() bool {
 	return l.score >= l.totalFish
+}
+
+func (l *GameLevel) Resize(oldWidth, oldHeight, newWidth, newHeight int) {
+	if !l.built || l.kitten == nil {
+		return
+	}
+
+	kittenX, kittenY, velocityY, onGround := l.kitten.GetState()
+	currentScore := l.score
+
+	collectedFish := make([]bool, len(l.fish))
+	for i, fish := range l.fish {
+		collectedFish[i] = fish.IsCollected()
+	}
+
+	scaleX := float64(newWidth) / float64(oldWidth)
+	scaleY := float64(newHeight) / float64(oldHeight)
+
+	newKittenX := int(float64(kittenX) * scaleX)
+	newKittenY := int(float64(kittenY) * scaleY)
+
+	l.BaseLevel = tl.NewBaseLevel(tl.Cell{
+		Bg: ColorBackground,
+		Fg: ColorText,
+		Ch: ' ',
+	})
+
+	l.built = false
+	l.totalFish = 0
+	l.score = currentScore
+	l.kitten = nil
+	l.fish = nil
+
+	l.ensureBuiltWithFish(collectedFish)
+
+	if l.kitten != nil {
+		l.kitten.SetState(newKittenX, newKittenY, velocityY, onGround)
+	}
 }

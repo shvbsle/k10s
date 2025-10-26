@@ -7,14 +7,16 @@ type Kitten struct {
 	velocityY float64
 	onGround  bool
 	level     *tl.BaseLevel
+	screen    *tl.Screen
 }
 
-func NewKitten(x, y int, level *tl.BaseLevel) *Kitten {
+func NewKitten(x, y int, level *tl.BaseLevel, screen *tl.Screen) *Kitten {
 	k := &Kitten{
 		Entity:    tl.NewEntity(x, y, KittenWidth, KittenHeight),
 		velocityY: 0,
 		onGround:  false,
 		level:     level,
+		screen:    screen,
 	}
 
 	k.SetCell(0, 0, &tl.Cell{Fg: ColorKitten, Ch: '/'})
@@ -39,18 +41,30 @@ func NewKitten(x, y int, level *tl.BaseLevel) *Kitten {
 }
 
 func (k *Kitten) Tick(event tl.Event) {
+	wasOnGround := k.onGround
+	k.onGround = false
+
+	screenWidth, screenHeight := k.screen.Size()
+
 	if event.Type == tl.EventKey {
 		x, y := k.Position()
 
 		switch event.Key {
 		case tl.KeyArrowLeft:
-			k.SetPosition(x-MoveSpeed, y)
+			newX := x - MoveSpeed
+			if newX < 0 {
+				newX = 0
+			}
+			k.SetPosition(newX, y)
 		case tl.KeyArrowRight:
-			k.SetPosition(x+MoveSpeed, y)
+			newX := x + MoveSpeed
+			if newX > screenWidth-KittenWidth {
+				newX = screenWidth - KittenWidth
+			}
+			k.SetPosition(newX, y)
 		case tl.KeySpace:
-			if k.onGround {
+			if wasOnGround {
 				k.velocityY = JumpVelocity
-				k.onGround = false
 			}
 		}
 	}
@@ -58,9 +72,14 @@ func (k *Kitten) Tick(event tl.Event) {
 	k.velocityY += Gravity
 	x, y := k.Position()
 	newY := float64(y) + k.velocityY
-	k.SetPosition(x, int(newY))
 
-	k.onGround = false
+	finalY := int(newY)
+	if finalY > screenHeight {
+		finalY = screenHeight
+		k.velocityY = 0
+	}
+
+	k.SetPosition(x, finalY)
 }
 
 func (k *Kitten) Draw(screen *tl.Screen) {
@@ -73,10 +92,13 @@ func (k *Kitten) Collide(collision tl.Physical) {
 		_, py := collision.Position()
 		_, ph := collision.Size()
 
-		if k.velocityY > 0 && ky+KittenHeight >= py && ky < py+ph {
+		if k.velocityY >= 0 && ky+KittenHeight >= py && ky < py+ph {
 			k.SetPosition(kx, py-KittenHeight)
 			k.velocityY = 0
 			k.onGround = true
+		} else if k.velocityY < 0 && ky <= py+ph && ky+KittenHeight > py {
+			k.SetPosition(kx, py+ph)
+			k.velocityY = 0
 		}
 	}
 
@@ -85,4 +107,15 @@ func (k *Kitten) Collide(collision tl.Physical) {
 			fish.Collect()
 		}
 	}
+}
+
+func (k *Kitten) GetState() (x, y int, velocityY float64, onGround bool) {
+	x, y = k.Position()
+	return x, y, k.velocityY, k.onGround
+}
+
+func (k *Kitten) SetState(x, y int, velocityY float64, onGround bool) {
+	k.SetPosition(x, y)
+	k.velocityY = velocityY
+	k.onGround = onGround
 }
