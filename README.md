@@ -4,7 +4,7 @@
 
 Built with Go + Bubble Tea.
 
-[![asciicast](https://asciinema.org/a/ZWCHSzaX35zjdPpS5pEVmrad1.svg)](https://asciinema.org/a/ZWCHSzaX35zjdPpS5pEVmrad1)
+![asciicast](./assets/k10s-demo.gif)
 
 ## Features
 
