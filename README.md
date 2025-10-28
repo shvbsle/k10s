@@ -1,8 +1,10 @@
 # k10s
 
-🙀 A modern, pretty TUI for Kubernetes, tuned for AI/ML clusters. 
+🙀 A modern, pretty TUI for Kubernetes, tuned for AI Hyperscaler clusters. 
 
 Built with Go + Bubble Tea.
+
+[![asciicast](https://asciinema.org/a/ZWCHSzaX35zjdPpS5pEVmrad1.svg)](https://asciinema.org/a/ZWCHSzaX35zjdPpS5pEVmrad1)
 
 ## Features
 
