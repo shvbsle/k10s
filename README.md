@@ -1,14 +1,18 @@
 # k10s
 
-🙀 A modern, pretty TUI for Kubernetes, tuned for AI/ML clusters. 
+🙀 A modern, pretty TUI for Kubernetes, tuned for AI Hyperscaler clusters. 
 
 Built with Go + Bubble Tea.
 
+![asciicast](./assets/k10s-demo.gif)
+
 ## Features
 
+- **Drill-Down Navigation**: Press `Enter` on any pod to view its containers, then drill into container logs with full text wrapping and search
 - **Paginated Tables**: Browse pods, nodes, and namespaces with configurable page sizes
 - **Vim Keybindings**: Navigate efficiently with `j/k`, `h/l`, `g/G`, and command mode with `:`
 - **Command Mode**: Type `:` to enter command mode, then use commands like `pods`, `nodes`, `ns`, or `quit`
+- **Log Viewing**: View container logs with timestamps, text wrapping (`w`), autoscroll (`s`), and fullscreen mode (`f`)
 - **Customizable**: Configure page sizes and UI elements via `~/.k10s.conf`
 - **Fast & Lightweight**: Built in Go with minimal dependencies
 
@@ -54,8 +58,18 @@ make run
 - `l` or `→` or `PgDown`: Next page
 - `g`: Jump to top of table
 - `G`: Jump to bottom of table
+- `Enter`: Drill down into selected resource (pod → containers → logs)
+- `Esc`: Go back to previous view
 - `:`: Enter command mode
-- `q`: Quit k10s
+- `:quit` or `:q`: Quit k10s
+
+#### Log View Mode
+When viewing container logs:
+- `w`: Toggle text wrapping
+- `t`: Toggle timestamps
+- `s`: Toggle autoscroll
+- `f`: Toggle fullscreen mode
+- `Esc`: Go back to container list
 
 #### Command Mode
 - Type a command and press `Enter` to execute
@@ -66,8 +80,10 @@ make run
 When in command mode (press `:`), you can use:
 
 - `pods` or `po`: Show all pods across all namespaces
+- `pods <namespace>`: Show pods in specific namespace
 - `nodes` or `no`: Show all nodes in the cluster
 - `namespaces` or `ns`: Show all namespaces
+- `services` or `svc`: Show all services
 - `quit` or `q`: Exit k10s
 
 ## Configuration
