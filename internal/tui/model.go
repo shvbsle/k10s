@@ -283,6 +283,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.updateColumns(totalWidth)
 		}
+
+		// Jump to last page for tailing behavior
+		if len(m.logLines) > 0 {
+			lastPage := (len(m.logLines) - 1) / m.paginator.PerPage
+			m.paginator.Page = lastPage
+		}
+
 		m.updateTableData()
 
 		if m.logView.Autoscroll {
@@ -454,6 +461,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "g":
 				// Go to first line of first page (absolute first line)
+				// Disable autoscroll when manually navigating to top
+				if m.resourceType == k8s.ResourceLogs {
+					m.logView.Autoscroll = false
+				}
 				m.paginator.Page = 0
 				m.updateTableData()
 				m.table.GotoTop()
@@ -461,13 +472,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "G":
 				// Go to last line of last page (absolute last line)
 				if m.resourceType == k8s.ResourceLogs {
-					// For logs, go to last page
+					// For logs, go to last page and enable autoscroll for tailing
 					totalLogs := len(m.logLines)
 					if totalLogs > 0 {
 						lastPage := (totalLogs - 1) / m.paginator.PerPage
 						m.paginator.Page = lastPage
 						m.updateTableData()
 						m.table.GotoBottom()
+						m.logView.Autoscroll = true
 					}
 				} else {
 					// For resources, go to last page

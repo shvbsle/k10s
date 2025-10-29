@@ -102,7 +102,19 @@ func (m *Model) updateTableData() {
 
 // updateTableDataForResources updates table with Kubernetes resources.
 func (m *Model) updateTableDataForResources() {
+	// Bounds checking to prevent slice out of range
+	if len(m.resources) == 0 {
+		m.table.SetRows([]table.Row{})
+		m.paginator.SetTotalPages(0)
+		return
+	}
+
 	start := m.paginator.Page * m.paginator.PerPage
+	if start >= len(m.resources) {
+		start = 0
+		m.paginator.Page = 0
+	}
+
 	end := start + m.paginator.PerPage
 	if end > len(m.resources) {
 		end = len(m.resources)
@@ -128,7 +140,19 @@ func (m *Model) updateTableDataForResources() {
 
 // updateTableDataForLogs updates table with container logs.
 func (m *Model) updateTableDataForLogs() {
+	// Bounds checking to prevent slice out of range
+	if len(m.logLines) == 0 {
+		m.table.SetRows([]table.Row{})
+		m.paginator.SetTotalPages(0)
+		return
+	}
+
 	start := m.paginator.Page * m.paginator.PerPage
+	if start >= len(m.logLines) {
+		start = 0
+		m.paginator.Page = 0
+	}
+
 	end := start + m.paginator.PerPage
 	if end > len(m.logLines) {
 		end = len(m.logLines)
@@ -438,7 +462,17 @@ func (m *Model) updateColumns(totalWidth int) {
 }
 
 // renderPagination renders the pagination display based on configured style.
+// Automatically switches to verbose style for logs with more than 5 pages.
 func (m Model) renderPagination(b *strings.Builder) {
+	// For logs with more than 5 pages, always use verbose style
+	if m.resourceType == k8s.ResourceLogs && m.paginator.TotalPages > 5 {
+		paginatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+		pageInfo := fmt.Sprintf("Page %d/%d", m.paginator.Page+1, m.paginator.TotalPages)
+		b.WriteString(paginatorStyle.Render(pageInfo))
+		return
+	}
+
+	// Otherwise use configured style
 	switch m.config.PaginationStyle {
 	case config.PaginationStyleVerbose:
 		// Text-based pagination: "Page 1/10"
