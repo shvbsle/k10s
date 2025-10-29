@@ -459,6 +459,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Handle navigation directly to prevent double-processing
 				m.table.MoveUp(1)
 				return m, nil
+			case "J", "shift+down":
+				// Jump to bottom of current page
+				m.table.GotoBottom()
+				return m, nil
+			case "K", "shift+up":
+				// Jump to top of current page
+				m.table.GotoTop()
+				return m, nil
 			case "g":
 				// Go to first line of first page (absolute first line)
 				// Disable autoscroll when manually navigating to top
