@@ -453,12 +453,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.table.MoveUp(1)
 				return m, nil
 			case "g":
-				// Handle navigation directly to prevent double-processing
+				// Go to first line of first page (absolute first line)
+				m.paginator.Page = 0
+				m.updateTableData()
 				m.table.GotoTop()
 				return m, nil
 			case "G":
-				// Handle navigation directly to prevent double-processing
-				m.table.GotoBottom()
+				// Go to last line of last page (absolute last line)
+				if m.resourceType == k8s.ResourceLogs {
+					// For logs, go to last page
+					totalLogs := len(m.logLines)
+					if totalLogs > 0 {
+						lastPage := (totalLogs - 1) / m.paginator.PerPage
+						m.paginator.Page = lastPage
+						m.updateTableData()
+						m.table.GotoBottom()
+					}
+				} else {
+					// For resources, go to last page
+					totalResources := len(m.resources)
+					if totalResources > 0 {
+						lastPage := (totalResources - 1) / m.paginator.PerPage
+						m.paginator.Page = lastPage
+						m.updateTableData()
+						m.table.GotoBottom()
+					}
+				}
 				return m, nil
 			case "h", "left", "pgup":
 				if m.paginator.Page > 0 {
