@@ -37,6 +37,13 @@ brew tap shvbsle/tap
 brew install k10s
 ```
 
+### Go install
+
+```bash
+go install github.com/shvbsle/k10s/cmd/k10s@latest
+k10s
+```
+
 ### Running
 
 ```bash
