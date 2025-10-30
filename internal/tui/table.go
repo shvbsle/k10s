@@ -407,58 +407,10 @@ func (m Model) buildTopBorderWithTitle(title string, width int, borderColor lipg
 	return result.String()
 }
 
-// getColumnTitles returns the appropriate column titles based on the resource type.
-func getColumnTitles(resType k8s.ResourceType) []string {
-	switch resType {
-	case k8s.ResourcePods:
-		return []string{"Name", "Namespace", "Node", "Status", "Age", "Pod IP"}
-	case k8s.ResourceNodes:
-		return []string{"Name", "", "", "Status", "Age", "Node IP"}
-	case k8s.ResourceNamespaces:
-		return []string{"Name", "", "", "Status", "Age", ""}
-	case k8s.ResourceServices:
-		return []string{"Name", "Namespace", "", "Type", "Age", "Cluster-IP/Ports"}
-	case k8s.ResourceContainers:
-		return []string{"Name", "Type", "Image", "Status", "Restarts", "Ready"}
-	case k8s.ResourceLogs:
-		return []string{"", "", "", "", "", ""}
-	default:
-		return []string{"Name", "Namespace", "Node", "Status", "Age", "IP"}
-	}
-}
-
 // updateColumns updates the table columns based on the current width and resource type.
 func (m *Model) updateColumns(totalWidth int) {
-	titles := getColumnTitles(m.resourceType)
-
-	if m.resourceType == k8s.ResourceLogs {
-		logWidth := totalWidth
-		m.table.SetColumns([]table.Column{
-			{Title: titles[0], Width: logWidth},
-			{Title: titles[1], Width: 0},
-			{Title: titles[2], Width: 0},
-			{Title: titles[3], Width: 0},
-			{Title: titles[4], Width: 0},
-			{Title: titles[5], Width: 0},
-		})
-		return
-	}
-
-	nameWidth := int(float64(totalWidth) * 0.30)
-	nsWidth := int(float64(totalWidth) * 0.13)
-	nodeWidth := int(float64(totalWidth) * 0.18)
-	statusWidth := int(float64(totalWidth) * 0.12)
-	ageWidth := int(float64(totalWidth) * 0.08)
-	ipWidth := totalWidth - nameWidth - nsWidth - nodeWidth - statusWidth - ageWidth
-
-	m.table.SetColumns([]table.Column{
-		{Title: titles[0], Width: nameWidth},
-		{Title: titles[1], Width: nsWidth},
-		{Title: titles[2], Width: nodeWidth},
-		{Title: titles[3], Width: statusWidth},
-		{Title: titles[4], Width: ageWidth},
-		{Title: titles[5], Width: ipWidth},
-	})
+	columns := GetColumns(totalWidth)[m.resourceType]
+	m.table.SetColumns(columns)
 }
 
 // renderPagination renders the pagination display based on configured style.

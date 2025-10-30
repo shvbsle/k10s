@@ -94,16 +94,8 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 	ti.CharLimit = 100
 	ti.Width = 50
 
-	// Initial columns for pods (default resource type)
-	titles := getColumnTitles(k8s.ResourcePods)
-	columns := []table.Column{
-		{Title: titles[0], Width: 35},
-		{Title: titles[1], Width: 15},
-		{Title: titles[2], Width: 20},
-		{Title: titles[3], Width: 12},
-		{Title: titles[4], Width: 8},
-		{Title: titles[5], Width: 15},
-	}
+	// Initial columnMap for pods (default resource type)
+	columns := GetColumns(100)[k8s.ResourcePods]
 
 	t := table.New(
 		table.WithColumns(columns),
