@@ -137,7 +137,7 @@ func main() {
 	}
 
 	slog.Info("k10s starting", "version", tui.Version)
-	slog.Info("configuration loaded", "page_size", cfg.PageSize)
+	slog.Info("configuration loaded", "max_page_size", cfg.MaxPageSize)
 
 	// Don't exit on failure, let TUI handle it
 	client, err := k8s.NewClient()
@@ -178,7 +178,7 @@ func main() {
 			break
 		}
 
-		model, ok := finalModel.(tui.Model)
+		model, ok := finalModel.(*tui.Model)
 		if !ok {
 			break
 		}

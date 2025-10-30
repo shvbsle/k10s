@@ -6,7 +6,7 @@ import (
 
 // ModelMemento captures Model state for drill-down navigation.
 type ModelMemento struct {
-	resources        []k8s.Resource
+	resources        []k8s.OrderedResourceFields
 	resourceType     k8s.ResourceType
 	currentNamespace string
 	tableCursor      int

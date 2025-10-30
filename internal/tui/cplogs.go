@@ -19,9 +19,9 @@ type logsCopiedMsg struct {
 
 // executeCplogsCommand copies or writes container logs.
 // Usage: :cplogs [all] [path]
-func (m Model) executeCplogsCommand(args []string) tea.Cmd {
+func (m *Model) executeCplogsCommand(args []string) tea.Cmd {
 	// Validate we're in logs view
-	if m.resourceType != k8s.ResourceLogs {
+	if m.currentGVR.Resource != k8s.ResourceLogs {
 		return m.showCommandError("cplogs only works in logs view")
 	}
 
@@ -102,12 +102,9 @@ func (m Model) executeCplogsCommand(args []string) tea.Cmd {
 	}
 }
 
-func (m Model) getCurrentPageLogs() []k8s.LogLine {
+func (m *Model) getCurrentPageLogs() []k8s.LogLine {
 	start := m.paginator.Page * m.paginator.PerPage
-	end := start + m.paginator.PerPage
-	if end > len(m.logLines) {
-		end = len(m.logLines)
-	}
+	end := min(start+m.paginator.PerPage, len(m.logLines))
 
 	if start >= len(m.logLines) {
 		return []k8s.LogLine{}
@@ -116,7 +113,7 @@ func (m Model) getCurrentPageLogs() []k8s.LogLine {
 	return m.logLines[start:end]
 }
 
-func (m Model) formatLogs(logLines []k8s.LogLine) string {
+func (m *Model) formatLogs(logLines []k8s.LogLine) string {
 	var b strings.Builder
 
 	for _, logLine := range logLines {
@@ -130,7 +127,7 @@ func (m Model) formatLogs(logLines []k8s.LogLine) string {
 	return b.String()
 }
 
-func (m Model) writeLogsToFile(content string, filePath string) error {
+func (m *Model) writeLogsToFile(content string, filePath string) error {
 	// Expand ~ to home directory if present
 	if strings.HasPrefix(filePath, "~/") {
 		homeDir, err := os.UserHomeDir()
