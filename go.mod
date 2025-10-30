@@ -12,6 +12,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.10.2
 	github.com/mattn/go-runewidth v0.0.19
+	github.com/samber/lo v1.52.0
 	k8s.io/api v0.34.1
 	k8s.io/apimachinery v0.34.1
 	k8s.io/client-go v0.34.1

@@ -47,7 +47,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("Configuration loaded (page_size=%d)", cfg.PageSize)
+	log.Printf("Configuration loaded (page_size=%d)", cfg.MaxPageSize)
 
 	// Don't exit on failure, let TUI handle it
 	client, err := k8s.NewClient()
@@ -65,10 +65,10 @@ func main() {
 
 	// Works even if client is nil or disconnected
 	log.Printf("Starting TUI...")
-	m := tui.New(cfg, client)
+	model := tui.New(cfg, client)
 
 	p := tea.NewProgram(
-		m,
+		model,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

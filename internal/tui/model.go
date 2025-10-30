@@ -15,6 +15,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/shvbsle/k10s/internal/config"
 	"github.com/shvbsle/k10s/internal/k8s"
+	"github.com/shvbsle/k10s/internal/tui/resources"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Version is the current version of k10s.
@@ -33,17 +35,20 @@ const (
 // Model represents the state of the k10s TUI application, including the current
 // view, resource data, cluster connection status, and UI components.
 type Model struct {
-	config             *config.Config
-	k8sClient          *k8s.Client
-	table              table.Model
-	paginator          paginator.Model
-	commandInput       textinput.Model
-	help               help.Model
-	keys               keyMap
-	viewMode           ViewMode
-	resources          []k8s.Resource
-	logLines           []k8s.LogLine
-	resourceType       k8s.ResourceType
+	config       *config.Config
+	k8sClient    *k8s.Client
+	table        table.Model
+	paginator    paginator.Model
+	commandInput textinput.Model
+	help         help.Model
+	keys         keyMap
+	viewMode     ViewMode
+
+	resourceType k8s.ResourceType
+	resources    []k8s.OrderedResourceFields
+	listOptions  metav1.ListOptions
+	logLines     []k8s.LogLine
+
 	clusterInfo        *k8s.ClusterInfo
 	currentNamespace   string
 	commandSuggestions []string
@@ -63,8 +68,8 @@ type errMsg struct{ err error }
 func (e errMsg) Error() string { return e.err.Error() }
 
 type resourcesLoadedMsg struct {
-	resources []k8s.Resource
-	resType   k8s.ResourceType
+	resources []k8s.OrderedResourceFields
+	resource  k8s.ResourceType
 	namespace string // The namespace these resources were loaded from
 }
 
@@ -88,19 +93,19 @@ type clearCommandSuccessMsg struct{}
 // New creates a new TUI model with the provided configuration and Kubernetes client.
 // The client may be nil or disconnected - the TUI will handle this gracefully and
 // display appropriate status messages.
-func New(cfg *config.Config, client *k8s.Client) Model {
+func New(cfg *config.Config, client *k8s.Client) *Model {
 	ti := textinput.New()
 	ti.Placeholder = "Enter command..."
 	ti.CharLimit = 100
 	ti.Width = 50
 
 	// Initial columnMap for pods (default resource type)
-	columns := GetColumns(100)[k8s.ResourcePods]
+	columns := resources.GetColumns(100, k8s.ResourcePods)
 
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithFocused(true),
-		table.WithHeight(cfg.PageSize),
+		table.WithHeight(cfg.MaxPageSize),
 	)
 
 	s := table.DefaultStyles()
@@ -115,7 +120,7 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 
 	p := paginator.New()
 	p.Type = paginator.Dots
-	p.PerPage = cfg.PageSize
+	p.PerPage = cfg.MaxPageSize
 	p.ActiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "235", Dark: "252"}).Render("•")
 	p.InactiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "250", Dark: "238"}).Render("•")
 
@@ -125,7 +130,7 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 		clusterInfo, _ = client.GetClusterInfo()
 	}
 
-	suggestions := []string{"pods", "nodes", "namespaces", "services", "ns", "quit", "q", "reconnect", "r", "cplogs", "cp"}
+	suggestions := []string{"resource", "ns", "quit", "q", "reconnect", "r", "cplogs", "cp"}
 
 	keys := newKeyMap()
 
@@ -145,7 +150,7 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 	h.Styles.FullDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	h.Styles.FullSeparator = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 
-	return Model{
+	return &Model{
 		config:             cfg,
 		k8sClient:          client,
 		table:              t,
@@ -156,7 +161,7 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 		viewMode:           ViewModeNormal,
 		resourceType:       k8s.ResourcePods,
 		clusterInfo:        clusterInfo,
-		currentNamespace:   "",
+		currentNamespace:   metav1.NamespaceAll,
 		commandSuggestions: suggestions,
 		selectedSuggestion: -1,
 		navigationHistory:  NewNavigationHistory(),
@@ -166,24 +171,24 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 
 // Init initializes the TUI model and returns the initial command to run.
 // It attempts to load pods if the client is connected.
-func (m Model) Init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	// Only try to load resources if connected
 	if m.isConnected() {
 		return tea.Batch(
-			m.loadResourcesCmd(k8s.ResourcePods),
+			m.loadResources(k8s.ResourcePods),
 		)
 	}
 	return nil
 }
 
 // ShortHelp returns context-aware short help based on current view.
-func (m Model) ShortHelp() []key.Binding {
+func (m *Model) ShortHelp() []key.Binding {
 	return []key.Binding{m.keys.Up, m.keys.Down, m.keys.Enter, m.keys.Back, m.keys.Command, m.keys.Quit}
 }
 
 // FullHelp returns context-aware full help based on current view.
 // Log-specific keybindings are only shown when viewing logs.
-func (m Model) FullHelp() [][]key.Binding {
+func (m *Model) FullHelp() [][]key.Binding {
 	base := [][]key.Binding{
 		{m.keys.Up, m.keys.Down, m.keys.GotoTop, m.keys.GotoBottom},
 		{m.keys.Left, m.keys.Right, m.keys.AllNS, m.keys.DefaultNS},
@@ -202,9 +207,8 @@ func (m Model) FullHelp() [][]key.Binding {
 
 // Update handles messages and updates the model state accordingly.
 // It implements the tea.Model interface for Bubble Tea.
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
-	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -227,14 +231,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.table.SetHeight(tableHeight)
 
-		// Rough calc for border renders:
-		// Total overhead: 2 (borders) + 5 (column spacing) = 7
-		totalWidth := m.width - 7
-		if totalWidth < 90 {
-			totalWidth = 90
-		}
+		// dynamic update page size to occupy the rest of the screen, respecting
+		// a maximum provided the by the user in the configuration file.
+		m.paginator.PerPage = min(m.config.MaxPageSize, tableHeight)
 
-		m.updateColumns(totalWidth)
+		m.updateColumns(m.width)
+		m.updateTableData()
 
 		return m, func() tea.Msg {
 			return tea.ClearScreen()
@@ -243,20 +245,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resourcesLoadedMsg:
 		m.resources = msg.resources
 		m.logLines = nil // Clear log lines when loading resources
-		m.resourceType = msg.resType
+		m.resourceType = msg.resource
 		m.currentNamespace = msg.namespace
 
 		// Update key bindings for new resource type
 		m.updateKeysForResourceType()
 
-		if m.width > 0 {
-			totalWidth := m.width - 7
-			if totalWidth < 90 {
-				totalWidth = 90
-			}
-			m.updateColumns(totalWidth)
-		}
+		m.updateColumns(m.width)
 		m.updateTableData()
+
 		return m, nil
 
 	case logsLoadedMsg:
@@ -267,14 +264,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update key bindings for logs view
 		m.updateKeysForResourceType()
-
-		if m.width > 0 {
-			totalWidth := m.width - 7
-			if totalWidth < 90 {
-				totalWidth = 90
-			}
-			m.updateColumns(totalWidth)
-		}
+		m.updateColumns(m.width)
 
 		// Jump to last page for tailing behavior
 		if len(m.logLines) > 0 {
@@ -366,26 +356,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
 					return m, nil
 				}
-				if !isNamespaceAware(m.resourceType) {
+				if !m.isNamespaced(m.resourceType) {
 					return m, nil // No-op for non-namespace-aware resources
 				}
-				m.currentNamespace = ""
+				m.currentNamespace = metav1.NamespaceAll
 				m.paginator.Page = 0
 				m.err = nil
-				return m, m.loadResourcesCmd(m.resourceType)
+				return m, m.loadResources(m.resourceType)
 			case "d":
 				if !m.isConnected() {
 					m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
 					return m, nil
 				}
-				if !isNamespaceAware(m.resourceType) {
+				if !m.isNamespaced(m.resourceType) {
 					return m, nil // No-op for non-namespace-aware resources
 				}
 				if m.clusterInfo != nil {
 					m.currentNamespace = m.clusterInfo.Namespace
 					m.paginator.Page = 0
 					m.err = nil
-					return m, m.loadResourcesCmd(m.resourceType)
+					return m, m.loadResources(m.resourceType)
 				}
 				return m, nil
 			case "enter":
@@ -402,17 +392,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				selectedResource := m.resources[actualIdx]
 
-				memento := m.saveToMemento(selectedResource.Name, selectedResource.Namespace)
+				memento := m.saveToMemento(selectedResource[0], selectedResource[1])
 				m.navigationHistory.Push(memento)
 
-				return m, m.drillDown(selectedResource)
-
+				return m, m.CommandWithPreflights(m.drillDown(selectedResource), m.requireConnection)
 			case "esc", "escape":
 				memento := m.navigationHistory.Pop()
 				if memento != nil {
 					m.restoreFromMemento(memento)
 				} else {
-					return m, m.loadResourcesWithNamespace(k8s.ResourcePods, "")
+					return m, m.loadResourcesWithNamespace(
+						metav1.SchemeGroupVersion.WithResource(k8s.ResourcePods),
+						metav1.NamespaceAll,
+					)
 				}
 				return m, nil
 			case "f":
@@ -515,18 +507,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Only update table for non-key messages
 	m.table, cmd = m.table.Update(msg)
-	cmds = append(cmds, cmd)
 
-	return m, tea.Batch(cmds...)
+	return m, tea.Batch(cmd)
 }
 
-func (m Model) isConnected() bool {
+func (m *Model) isConnected() bool {
 	return m.k8sClient != nil && m.k8sClient.IsConnected()
 }
 
 // View renders the current state of the TUI to a string.
 // It implements the tea.Model interface for Bubble Tea.
-func (m Model) View() string {
+func (m *Model) View() string {
 	if !m.ready {
 		return "Initializing k10s..."
 	}
@@ -624,7 +615,7 @@ func (m Model) View() string {
 }
 
 // renderBreadcrumb renders the navigation breadcrumb showing the hierarchy path.
-func (m Model) renderBreadcrumb(b *strings.Builder) {
+func (m *Model) renderBreadcrumb(b *strings.Builder) {
 	if m.navigationHistory.Len() == 0 {
 		return
 	}
@@ -659,7 +650,7 @@ func (m Model) renderBreadcrumb(b *strings.Builder) {
 }
 
 // saveToMemento creates and returns a memento containing the current state of the Model.
-func (m Model) saveToMemento(selectedResourceName, selectedNamespace string) *ModelMemento {
+func (m *Model) saveToMemento(selectedResourceName, selectedNamespace string) *ModelMemento {
 	return &ModelMemento{
 		resources:        m.resources,
 		resourceType:     m.resourceType,
@@ -693,13 +684,7 @@ func (m *Model) restoreFromMemento(memento *ModelMemento) {
 	m.paginator.SetTotalPages(len(m.resources))
 
 	// Update table columns and data
-	if m.width > 0 {
-		totalWidth := m.width - 7
-		if totalWidth < 90 {
-			totalWidth = 90
-		}
-		m.updateColumns(totalWidth)
-	}
+	m.updateColumns(m.width)
 	m.updateTableData()
 
 	maxCursor := len(m.table.Rows()) - 1

@@ -1,0 +1,40 @@
+{
+    "pods": {
+        "drill": {
+            "resource": "containers"
+        },
+        "fields": [
+            { "name": "Name", "path": "{{ .metadata.name }}", "weight": 0.3 },
+            { "name": "Namespace", "path": "{{ .metadata.namespace }}", "weight": 0.12 },
+            { "name": "Node", "path": "{{ .spec.nodeName }}", "weight": 0.18 },
+            { "name": "Status", "path": "{{ .status.nodeName }}", "weight": 0.12 },
+            { "name": "CreationDate", "path": "{{ .metadata.creationTimestamp }}", "weight": 0.08 },
+            { "name": "Pod IP", "path": "{{ .status.podIP }}", "weight": 0.3 }
+        ]
+    },
+    "nodes": {
+        "drill": {
+            "resource": "pods",
+            "selectors": [
+                "spec.nodeName={{ .metadata.name }}"
+            ]
+        },
+        "fields": [
+            { "name": "Name", "path": "{{ .metadata.name }}", "weight": 0.4 },
+            { "name": "Age", "path": "{{ .metadata.creationTimestamp }}", "weight": 0.3 },
+            { "name": "Node IP", "path": "{{ (index .status.addresses 0).address }}", "weight": 0.3 }
+        ]
+    },
+    "services": {
+        "fields": [
+            { "name": "Name", "path": "{{ .metadata.name }}", "weight": 0.3 },
+            { "name": "Namespace", "path": "{{ .metadata.namespace }}", "weight": 0.4 },
+            { "name": "Cluster-IP", "path": "{{ .spec.clusterIP }}", "weight": 0.3 }
+        ]
+    },
+    "logs": {
+        "fields": [
+            { "name": "", "weight": 1 }
+        ]
+    }
+}

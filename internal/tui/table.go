@@ -10,6 +10,8 @@ import (
 	"github.com/mattn/go-runewidth"
 	"github.com/shvbsle/k10s/internal/config"
 	"github.com/shvbsle/k10s/internal/k8s"
+	"github.com/shvbsle/k10s/internal/tui/resources"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // wrapTextAtWordBoundary wraps text at word boundaries when possible.
@@ -124,14 +126,7 @@ func (m *Model) updateTableDataForResources() {
 	rows := make([]table.Row, len(pageResources))
 
 	for i, res := range pageResources {
-		rows[i] = table.Row{
-			res.Name,
-			res.Namespace,
-			res.Node,
-			res.Status,
-			res.Age,
-			res.Extra,
-		}
+		rows[i] = table.Row(res)
 	}
 
 	m.table.SetRows(rows)
@@ -230,9 +225,9 @@ func (m *Model) formatLogLine(logLine k8s.LogLine) []table.Row {
 }
 
 // renderTableWithHeader renders the table with a custom header border containing the resource type.
-func (m Model) renderTableWithHeader(b *strings.Builder) {
+func (m *Model) renderTableWithHeader(b *strings.Builder) {
 	nsDisplay := m.currentNamespace
-	if nsDisplay == "" {
+	if nsDisplay == metav1.NamespaceAll {
 		nsDisplay = "all"
 	}
 
@@ -381,7 +376,7 @@ func (m Model) renderTableWithHeader(b *strings.Builder) {
 }
 
 // buildTopBorderWithTitle creates a top border with a centered title.
-func (m Model) buildTopBorderWithTitle(title string, width int, borderColor lipgloss.Color, titleStyle lipgloss.Style) string {
+func (m *Model) buildTopBorderWithTitle(title string, width int, borderColor lipgloss.Color, titleStyle lipgloss.Style) string {
 	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
 
 	// Calculate centering - leftDashes + titleLen + rightDashes = width
@@ -408,14 +403,26 @@ func (m Model) buildTopBorderWithTitle(title string, width int, borderColor lipg
 }
 
 // updateColumns updates the table columns based on the current width and resource type.
-func (m *Model) updateColumns(totalWidth int) {
-	columns := GetColumns(totalWidth)[m.resourceType]
+func (m *Model) updateColumns(width int) {
+	// Rough calc for border renders:
+	// Total overhead: 2 (borders) + 5 (column spacing) = 7
+	totalWidth := width - 10
+	if totalWidth < 90 {
+		totalWidth = 90
+	}
+	columns := resources.GetColumns(totalWidth, m.resourceType)
+
+	// we have to clear rows if we're going to update columns to avoid breaking
+	// the model with inconsistent column count.
+	// SAFETY: this function should always be called before updating rows.
+	m.table.SetRows([]table.Row{})
+
 	m.table.SetColumns(columns)
 }
 
 // renderPagination renders the pagination display based on configured style.
 // Automatically switches to verbose style for logs with more than 5 pages.
-func (m Model) renderPagination(b *strings.Builder) {
+func (m *Model) renderPagination(b *strings.Builder) {
 	// For logs with more than 5 pages, always use verbose style
 	if m.resourceType == k8s.ResourceLogs && m.paginator.TotalPages > 5 {
 		paginatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
