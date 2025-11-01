@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func formatAge(t time.Time) string {
+func FormatAge(t time.Time) string {
 	d := time.Since(t)
 
 	if d < time.Minute {

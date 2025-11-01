@@ -4,11 +4,12 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // renderTopHeader renders the appropriate header based on terminal height.
 // Three stages: Full (≥30 lines), Compact (20-29 lines), Minimal (<20 lines).
-func (m Model) renderTopHeader(b *strings.Builder) {
+func (m *Model) renderTopHeader(b *strings.Builder) {
 	// Stage 1 (Full) = >= 30: everything including CPU/MEM
 	// Stage 2 (Compact) = 20-30: 4 lines - info + help + kittens (no CPU/MEM)
 	// Stage 3 (Minimal) = < 20: just context + hint (future implementation)
@@ -20,7 +21,7 @@ func (m Model) renderTopHeader(b *strings.Builder) {
 }
 
 // renderCompactHeader shows 4-line header: info + help + kittens (no CPU/MEM).
-func (m Model) renderCompactHeader(b *strings.Builder) {
+func (m *Model) renderCompactHeader(b *strings.Builder) {
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 
@@ -39,7 +40,7 @@ func (m Model) renderCompactHeader(b *strings.Builder) {
 		infoContent.WriteString(labelStyle.Render("Context: ") + valueStyle.Render(m.clusterInfo.Context) + "\n")
 		infoContent.WriteString(labelStyle.Render("Cluster: ") + valueStyle.Render(m.clusterInfo.Cluster) + "\n")
 		nsDisplay := m.currentNamespace
-		if nsDisplay == "" {
+		if nsDisplay == metav1.NamespaceAll {
 			nsDisplay = "all"
 		}
 		infoContent.WriteString(labelStyle.Render("Namespace: ") + valueStyle.Render(nsDisplay) + "\n")
@@ -117,7 +118,7 @@ func (m Model) renderCompactHeader(b *strings.Builder) {
 }
 
 // renderFullHeader shows everything including kittens (for large terminals).
-func (m Model) renderFullHeader(b *strings.Builder) {
+func (m *Model) renderFullHeader(b *strings.Builder) {
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
@@ -136,12 +137,18 @@ func (m Model) renderFullHeader(b *strings.Builder) {
 		infoContent.WriteString(labelStyle.Render("Context: ") + valueStyle.Render(m.clusterInfo.Context) + "\n")
 		infoContent.WriteString(labelStyle.Render("Cluster: ") + valueStyle.Render(m.clusterInfo.Cluster) + "\n")
 		nsDisplay := m.currentNamespace
-		if nsDisplay == "" {
+		if nsDisplay == metav1.NamespaceAll {
 			nsDisplay = "all"
 		}
 		infoContent.WriteString(labelStyle.Render("Namespace: ") + valueStyle.Render(nsDisplay) + "\n")
 		infoContent.WriteString(labelStyle.Render("K10s Ver: ") + valueStyle.Render(Version) + "\n")
 		infoContent.WriteString(labelStyle.Render("K8s Ver: ") + valueStyle.Render(m.clusterInfo.K8sVersion) + "\n")
+	}
+	if len(m.listOptions.FieldSelector) > 0 {
+		infoContent.WriteString(labelStyle.Render("FieldSelector: ") + valueStyle.Render(m.listOptions.FieldSelector) + "\n")
+	}
+	if len(m.listOptions.LabelSelector) > 0 {
+		infoContent.WriteString(labelStyle.Render("LabelSelector: ") + valueStyle.Render(m.listOptions.LabelSelector) + "\n")
 	}
 	infoContent.WriteString(labelStyle.Render("CPU: ") + errorStyle.Render("n/a") + "\n")
 	infoContent.WriteString(labelStyle.Render("MEM: ") + errorStyle.Render("n/a"))
