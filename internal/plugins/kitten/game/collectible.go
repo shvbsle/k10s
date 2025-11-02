@@ -15,9 +15,9 @@ func NewFish(x, y int, onCollect func()) *Fish {
 		onCollect: onCollect,
 	}
 
-	f.SetCell(0, 0, &tl.Cell{Fg: ColorFish, Ch: '>'})
-	f.SetCell(1, 0, &tl.Cell{Fg: ColorFish, Ch: '<'})
-	f.SetCell(2, 0, &tl.Cell{Fg: ColorFish, Ch: '>'})
+	f.SetCell(0, 0, &tl.Cell{Bg: tl.ColorCyan})
+	f.SetCell(1, 0, &tl.Cell{Bg: ColorFish})
+	f.SetCell(2, 0, &tl.Cell{Bg: tl.ColorCyan})
 
 	return f
 }

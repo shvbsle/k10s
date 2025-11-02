@@ -122,6 +122,147 @@ logo_end
 - `pagination_style`: Pagination display style - `bubbles` for dot-based paginator or `verbose` for text like "Page 1/10" (default: bubbles)
 - `logo_start`/`logo_end`: Custom ASCII art logo to display
 
+## Plugins
+
+k10s features a built-in extensible plugin system that allows adding custom functionality like games, tools, or utilities. The plugin architecture is a core k10s feature designed to enable seamless integration of additional commands while maintaining isolation between plugins and the core system.
+
+### Available Plugins
+
+#### Kitten Climber (Built-in)
+
+A fun infinite runner platformer game! Try typing `:play`, `:game`, or `:kitten` to launch it.
+
+**Features**:
+- Infinite procedural platform generation
+- Pattern-based fish collectibles with combo system
+- High score persistence (stored in `~/.k10s/plugins/kitten/highscores.json`)
+- Space theme with stars
+- Progressive difficulty scaling
+
+### Adding Your Own Plugin
+
+Plugins are compiled into k10s and implement a simple interface. Here's how to create one:
+
+#### 1. Create Plugin Directory
+
+```bash
+mkdir -p internal/plugins/myplugin
+```
+
+#### 2. Implement the Plugin Interface
+
+Create `internal/plugins/myplugin/myplugin.go`:
+
+```go
+package myplugin
+
+import "github.com/shvbsle/k10s/internal/plugins"
+
+type MyPlugin struct{}
+
+func (p *MyPlugin) Name() string {
+    return "my-plugin"
+}
+
+func (p *MyPlugin) Description() string {
+    return "A description of what my plugin does"
+}
+
+func (p *MyPlugin) Commands() []string {
+    return []string{"myplugin", "mp"}  // Command aliases
+}
+
+func (p *MyPlugin) Launch() bool {
+    // Your plugin logic here
+    fmt.Println("Hello from my plugin!")
+    // Return true to restart k10s TUI, false to exit k10s
+    return true
+}
+
+func New() *MyPlugin {
+    return &MyPlugin{}
+}
+```
+
+#### 3. Register Your Plugin
+
+In `cmd/k10s/main.go`, import and register your plugin:
+
+```go
+import (
+    // ... existing imports ...
+    "github.com/shvbsle/k10s/internal/plugins/myplugin"
+)
+
+func main() {
+    // ... existing setup ...
+
+    // Initialize plugin registry
+    pluginRegistry := plugins.NewRegistry()
+    pluginRegistry.Register(kitten.New())
+    pluginRegistry.Register(myplugin.New())  // Add your plugin
+
+    // ... rest of main ...
+}
+```
+
+#### 4. Build and Test
+
+```bash
+make build
+./bin/k10s
+# Type :myplugin to launch your plugin
+```
+
+### Plugin Interface Reference
+
+```go
+type Plugin interface {
+    // Name returns unique identifier (kebab-case recommended)
+    Name() string
+
+    // Description returns human-readable description
+    Description() string
+
+    // Commands returns command aliases that trigger this plugin
+    Commands() []string
+
+    // Launch executes the plugin
+    // Returns true to restart TUI, false to exit k10s
+    Launch() bool
+}
+```
+
+### Plugin Guidelines
+
+- **Commands**: Use short, memorable command aliases (e.g., `play`, `debug`, `tool`)
+- **Launch Return Value**:
+  - Return `true` if your plugin is a temporary utility (game, viewer, etc.)
+  - Return `false` if your plugin should exit k10s entirely
+- **Error Handling**: Handle errors gracefully within your plugin
+- **Dependencies**: Add any required dependencies to `go.mod`
+- **Data Storage**: Store plugin data in isolated directories to avoid cross-contamination
+  - Use `config.GetPluginDataDir(pluginName)` to get your plugin's data directory
+  - Path format: `~/.k10s/plugins/{plugin-name}/`
+  - Each plugin gets its own isolated directory automatically created
+  - Example: High scores for kitten are stored in `~/.k10s/plugins/kitten/highscores.json`
+
+### Example: TUI-based Plugin
+
+For TUI-based plugins using Bubble Tea:
+
+```go
+func (p *MyPlugin) Launch() bool {
+    program := tea.NewProgram(myModel{})
+    if _, err := program.Run(); err != nil {
+        log.Printf("Error running plugin: %v", err)
+    }
+    return true  // Return to k10s after plugin exits
+}
+```
+
+For more details, see [internal/plugins/README.md](internal/plugins/README.md).
+
 ## Development
 
 ### Prerequisites

@@ -8,7 +8,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/shvbsle/k10s/internal/k8s"
+	"github.com/shvbsle/k10s/internal/plugins"
 )
+
+type launchPluginMsg struct {
+	plugin plugins.Plugin
+}
 
 // executeCommand processes a command string and returns the appropriate tea command.
 func (m Model) executeCommand(command string) tea.Cmd {
@@ -24,13 +29,17 @@ func (m Model) executeCommand(command string) tea.Cmd {
 	baseCommand := parts[0]
 	args := parts[1:]
 
+	if m.pluginRegistry != nil {
+		if plugin, ok := m.pluginRegistry.GetByCommand(baseCommand); ok {
+			return m.launchPluginCmd(plugin)
+		}
+	}
+
 	switch baseCommand {
 	case "quit", "q":
 		return tea.Quit
 	case "reconnect", "r":
 		return m.reconnectCmd()
-	case "play", "game", "kitten":
-		return m.launchGameCmd()
 	case "pods", "pod", "po":
 		namespace := m.parseNamespaceArgs(args)
 		return m.requireConnection(m.loadResourcesWithNamespace(k8s.ResourcePods, namespace))
@@ -160,11 +169,10 @@ func (m Model) reconnectCmd() tea.Cmd {
 	}
 }
 
-// launchGameCmd creates a command that signals the TUI to quit and launch the game.
-func (m Model) launchGameCmd() tea.Cmd {
+func (m Model) launchPluginCmd(plugin plugins.Plugin) tea.Cmd {
 	return func() tea.Msg {
-		log.Printf("TUI: Launching game...")
-		return launchGameMsg{}
+		log.Printf("TUI: Launching plugin: %s", plugin.Name())
+		return launchPluginMsg{plugin: plugin}
 	}
 }
 

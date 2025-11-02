@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/shvbsle/k10s/internal/config"
 	"github.com/shvbsle/k10s/internal/k8s"
+	"github.com/shvbsle/k10s/internal/plugins"
 )
 
 // Version is the current version of k10s.
@@ -57,6 +58,8 @@ type Model struct {
 	commandErr         string
 	commandSuccess     string
 	shouldLaunchGame   bool
+	pluginRegistry     *plugins.Registry
+	pluginToLaunch     plugins.Plugin
 }
 
 type errMsg struct{ err error }
@@ -91,7 +94,7 @@ type launchGameMsg struct{}
 // New creates a new TUI model with the provided configuration and Kubernetes client.
 // The client may be nil or disconnected - the TUI will handle this gracefully and
 // display appropriate status messages.
-func New(cfg *config.Config, client *k8s.Client) Model {
+func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) Model {
 	ti := textinput.New()
 	ti.Placeholder = "Enter command..."
 	ti.CharLimit = 100
@@ -128,7 +131,10 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 		clusterInfo, _ = client.GetClusterInfo()
 	}
 
-	suggestions := []string{"pods", "nodes", "namespaces", "services", "ns", "quit", "q", "reconnect", "r", "cplogs", "cp", "play", "game", "kitten"}
+	suggestions := []string{"pods", "nodes", "namespaces", "services", "ns", "quit", "q", "reconnect", "r", "cplogs", "cp"}
+	if registry != nil {
+		suggestions = append(suggestions, registry.CommandSuggestions()...)
+	}
 
 	keys := newKeyMap()
 
@@ -164,6 +170,7 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 		selectedSuggestion: -1,
 		navigationHistory:  NewNavigationHistory(),
 		logView:            NewLogViewState(),
+		pluginRegistry:     registry,
 	}
 }
 
@@ -182,6 +189,10 @@ func (m Model) Init() tea.Cmd {
 // ShouldLaunchGame returns true if the game should be launched after TUI exits.
 func (m Model) ShouldLaunchGame() bool {
 	return m.shouldLaunchGame
+}
+
+func (m Model) GetPluginToLaunch() plugins.Plugin {
+	return m.pluginToLaunch
 }
 
 // ShortHelp returns context-aware short help based on current view.
@@ -327,6 +338,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case launchGameMsg:
 		m.shouldLaunchGame = true
+		return m, tea.Quit
+
+	case launchPluginMsg:
+		m.pluginToLaunch = msg.plugin
 		return m, tea.Quit
 
 	case logsCopiedMsg:

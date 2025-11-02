@@ -8,16 +8,13 @@ import (
 	"github.com/adrg/xdg"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/shvbsle/k10s/internal/config"
-	"github.com/shvbsle/k10s/internal/game"
 	"github.com/shvbsle/k10s/internal/k8s"
+	"github.com/shvbsle/k10s/internal/plugins"
+	"github.com/shvbsle/k10s/internal/plugins/kitten"
 	"github.com/shvbsle/k10s/internal/tui"
 )
 
-// setupLogging configures logging to write to the XDG state directory at
-// ~/.local/state/k10s/k10s.log (or platform equivalent). Returns an error
-// if the log file cannot be created or opened.
 func setupLogging() error {
-	// Use XDG state directory for cross-platform log storage
 	logPath, err := xdg.StateFile("k10s/k10s.log")
 	if err != nil {
 		return fmt.Errorf("could not get log path: %w", err)
@@ -50,7 +47,6 @@ func main() {
 	}
 	log.Printf("Configuration loaded (page_size=%d)", cfg.PageSize)
 
-	// Don't exit on failure, let TUI handle it
 	client, err := k8s.NewClient()
 	if err != nil {
 		log.Printf("Warning: could not initialize Kubernetes client: %v", err)
@@ -64,11 +60,13 @@ func main() {
 		}
 	}
 
-	// Works even if client is nil or disconnected
-	log.Printf("Starting TUI...")
-	m := tui.New(cfg, client)
+	pluginRegistry := plugins.NewRegistry()
+	pluginRegistry.Register(kitten.New())
+	log.Printf("Loaded %d plugins", len(pluginRegistry.List()))
 
-	// Main loop to support returning to k10s after game
+	log.Printf("Starting TUI...")
+	m := tui.New(cfg, client, pluginRegistry)
+
 	for {
 		p := tea.NewProgram(
 			m,
@@ -81,20 +79,29 @@ func main() {
 			log.Fatal(err)
 		}
 
-		// Check if we should launch the game
 		if finalModel != nil {
-			if model, ok := finalModel.(tui.Model); ok && model.ShouldLaunchGame() {
-				log.Printf("Launching Kitten Climber game...")
-				game.LaunchGame()
+			if model, ok := finalModel.(tui.Model); ok {
+				if plugin := model.GetPluginToLaunch(); plugin != nil {
+					log.Printf("Launching plugin: %s", plugin.Name())
+					restartTUI, err := plugin.Launch()
+					if err != nil {
+						log.Printf("Error launching plugin %s: %v", plugin.Name(), err)
+						m = tui.New(cfg, client, pluginRegistry)
+						continue
+					}
 
-				// After game ends, restart k10s TUI
-				log.Printf("Returning to k10s TUI...")
-				m = tui.New(cfg, client)
-				continue
+					if restartTUI {
+						log.Printf("Returning to k10s TUI...")
+						m = tui.New(cfg, client, pluginRegistry)
+						continue
+					} else {
+						log.Printf("Plugin requested exit, k10s exiting...")
+						break
+					}
+				}
 			}
 		}
 
-		// User quit k10s normally, exit loop
 		log.Printf("k10s exiting...")
 		break
 	}

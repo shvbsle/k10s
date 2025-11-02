@@ -5,9 +5,9 @@ import tl "github.com/JoelOtter/termloop"
 const (
 	GameTitle = "KITTEN CLIMBER"
 
-	JumpVelocity = -1.5
-	Gravity      = 0.15
-	MoveSpeed    = 1
+	JumpVelocity = -0.5
+	Gravity      = 0.0625
+	MoveSpeed    = 5
 
 	KittenWidth  = 5
 	KittenHeight = 3
@@ -17,8 +17,7 @@ const (
 	FishWidth  = 3
 	FishHeight = 1
 
-	MinScreenWidth  = 60
-	MinScreenHeight = 20
+	GameFPS = 120
 )
 
 var (
@@ -40,7 +39,7 @@ var (
 		"║          ██║  ██╗██║   ██║      ██║   ███████╗██║ ╚████║███████║          ║",
 		"║          ╚═╝  ╚═╝╚═╝   ╚═╝      ╚═╝   ╚══════╝╚═╝  ╚═══╝╚══════╝          ║",
 		"║                                                                           ║",
-		"║                 Help the kittens reach the Control Plane!                 ║",
+		"║                    Infinite Runner - Collect Fish!                        ║",
 		"║                                                                           ║",
 		"║                         Arrow Keys: Move                                  ║",
 		"║                         Space: Jump                                       ║",
@@ -52,6 +51,7 @@ var (
 	}
 
 	ColorKitten       = tl.ColorYellow
+	ColorTitle        = tl.ColorYellow
 	ColorPod          = tl.ColorCyan
 	ColorNode         = tl.ColorGreen
 	ColorService      = tl.ColorMagenta
