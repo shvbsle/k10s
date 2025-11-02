@@ -21,14 +21,6 @@ const (
 )
 
 var (
-	KittenSprite = []string{
-		"/\\_/\\",
-		"(o.o)",
-		" >^< ",
-	}
-
-	FishSprite = "><>"
-
 	TitleScreen = []string{
 		"╔═══════════════════════════════════════════════════════════════════════════╗",
 		"║                                                                           ║",
@@ -66,6 +58,5 @@ type GameState int
 const (
 	StateTitleScreen GameState = iota
 	StatePlaying
-	StateWin
 	StateLose
 )

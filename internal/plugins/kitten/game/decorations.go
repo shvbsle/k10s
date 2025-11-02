@@ -2,38 +2,6 @@ package game
 
 import tl "github.com/JoelOtter/termloop"
 
-type Moon struct{}
-
-func (m *Moon) Draw(screen *tl.Screen) {
-	screenWidth, _ := screen.Size()
-
-	startX := screenWidth - 18
-	startY := 3
-
-	moonArt := []string{
-		"   ████   ",
-		"  ██████  ",
-		" ████████ ",
-		" ████████ ",
-		"  ██████  ",
-		"   ████   ",
-	}
-
-	for lineIdx, line := range moonArt {
-		for i, ch := range line {
-			if ch != ' ' {
-				screen.RenderCell(startX+i, startY+lineIdx, &tl.Cell{
-					Fg: tl.ColorWhite,
-					Bg: ColorBackground,
-					Ch: ch,
-				})
-			}
-		}
-	}
-}
-
-func (m *Moon) Tick(event tl.Event) {}
-
 type Stars struct{}
 
 func (s *Stars) Draw(screen *tl.Screen) {
