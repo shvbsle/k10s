@@ -1,15 +1,25 @@
 package plugins
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 )
 
+// Plugin represents an extension that adds functionality to k10s.
+// Plugins are registered in the Registry and invoked via commands.
+// k10s automatically returns to the main TUI after the plugin exits.
 type Plugin interface {
+	// Name returns the unique identifier (kebab-case recommended).
 	Name() string
+
+	// Description is shown in help text and plugin listings.
 	Description() string
+
+	// Commands returns aliases that trigger this plugin (e.g., ["play", "game", "kitten"]).
 	Commands() []string
-	Launch() (bool, error)
+
+	// Launch executes the plugin. k10s returns to the main TUI on exit.
+	Launch() error
 }
 
 type Registry struct {
@@ -31,9 +41,8 @@ func (r *Registry) Register(p Plugin) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if existing, exists := r.plugins[p.Name()]; exists {
-		log.Printf("Warning: plugin '%s' already registered, overwriting with new instance", p.Name())
-		_ = existing
+	if _, exists := r.plugins[p.Name()]; exists {
+		slog.Warn("plugin already registered", "plugin", p.Name())
 	}
 
 	r.plugins[p.Name()] = p
@@ -41,8 +50,10 @@ func (r *Registry) Register(p Plugin) {
 
 	for _, cmd := range p.Commands() {
 		if existingPlugin, exists := r.commandMap[cmd]; exists {
-			log.Printf("Warning: command '%s' already registered by plugin '%s', overwriting with plugin '%s'",
-				cmd, existingPlugin.Name(), p.Name())
+			slog.Warn("command collision",
+				"command", cmd,
+				"existing_plugin", existingPlugin.Name(),
+				"new_plugin", p.Name())
 		}
 		r.commandMap[cmd] = p
 	}

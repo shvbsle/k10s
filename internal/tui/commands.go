@@ -29,10 +29,8 @@ func (m Model) executeCommand(command string) tea.Cmd {
 	baseCommand := parts[0]
 	args := parts[1:]
 
-	if m.pluginRegistry != nil {
-		if plugin, ok := m.pluginRegistry.GetByCommand(baseCommand); ok {
-			return m.launchPluginCmd(plugin)
-		}
+	if plugin, ok := m.pluginRegistry.GetByCommand(baseCommand); ok {
+		return m.launchPluginCmd(plugin)
 	}
 
 	switch baseCommand {

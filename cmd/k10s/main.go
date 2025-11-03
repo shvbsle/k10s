@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 
 	"github.com/adrg/xdg"
@@ -65,11 +66,10 @@ func main() {
 	log.Printf("Loaded %d plugins", len(pluginRegistry.List()))
 
 	log.Printf("Starting TUI...")
-	m := tui.New(cfg, client, pluginRegistry)
 
 	for {
 		p := tea.NewProgram(
-			m,
+			tui.New(cfg, client, pluginRegistry),
 			tea.WithAltScreen(),
 			tea.WithMouseCellMotion(),
 		)
@@ -79,30 +79,27 @@ func main() {
 			log.Fatal(err)
 		}
 
-		if finalModel != nil {
-			if model, ok := finalModel.(tui.Model); ok {
-				if plugin := model.GetPluginToLaunch(); plugin != nil {
-					log.Printf("Launching plugin: %s", plugin.Name())
-					restartTUI, err := plugin.Launch()
-					if err != nil {
-						log.Printf("Error launching plugin %s: %v", plugin.Name(), err)
-						m = tui.New(cfg, client, pluginRegistry)
-						continue
-					}
-
-					if restartTUI {
-						log.Printf("Returning to k10s TUI...")
-						m = tui.New(cfg, client, pluginRegistry)
-						continue
-					} else {
-						log.Printf("Plugin requested exit, k10s exiting...")
-						break
-					}
-				}
-			}
+		if finalModel == nil {
+			break
 		}
 
-		log.Printf("k10s exiting...")
-		break
+		model, ok := finalModel.(tui.Model)
+		if !ok {
+			break
+		}
+
+		plugin := model.GetPluginToLaunch()
+		if plugin == nil {
+			break
+		}
+
+		slog.Info("launching plugin", "plugin", plugin.Name())
+		if err := plugin.Launch(); err != nil {
+			slog.Error("plugin launch failed", "plugin", plugin.Name(), "error", err)
+		}
+
+		slog.Info("returning to k10s TUI")
 	}
+
+	slog.Info("k10s exiting")
 }

@@ -22,8 +22,8 @@ func (m *mockPlugin) Commands() []string {
 	return m.commands
 }
 
-func (m *mockPlugin) Launch() (bool, error) {
-	return true, nil
+func (m *mockPlugin) Launch() error {
+	return nil
 }
 
 func TestRegistryRegister(t *testing.T) {

@@ -16,11 +16,8 @@ func (k *KittenClimberPlugin) Commands() []string {
 	return []string{"play", "game", "kitten"}
 }
 
-func (k *KittenClimberPlugin) Launch() (bool, error) {
-	if err := game.LaunchGame(); err != nil {
-		return false, err
-	}
-	return true, nil
+func (k *KittenClimberPlugin) Launch() error {
+	return game.LaunchGame()
 }
 
 func New() *KittenClimberPlugin {

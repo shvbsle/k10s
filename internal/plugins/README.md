@@ -23,10 +23,8 @@ type Plugin interface {
     // Commands returns command aliases that trigger this plugin
     Commands() []string
 
-    // Launch executes the plugin
-    // Returns true to restart k10s TUI after plugin exits
-    // Returns false to exit k10s entirely
-    Launch() bool
+    // Launch executes the plugin and returns an error if it fails
+    Launch() error
 }
 ```
 
@@ -78,9 +76,9 @@ func (k *KittenClimberPlugin) Commands() []string {
     return []string{"play", "game", "kitten"}
 }
 
-func (k *KittenClimberPlugin) Launch() bool {
+func (k *KittenClimberPlugin) Launch() error {
     game.LaunchGame()
-    return true  // Return to k10s after game exits
+    return nil  // Return to k10s after game exits
 }
 
 func New() *KittenClimberPlugin {
@@ -92,9 +90,7 @@ func New() *KittenClimberPlugin {
 
 - **Naming**: Use kebab-case for plugin names (e.g., "my-plugin", "debug-tool")
 - **Commands**: Choose short, memorable command aliases
-- **Return Value**:
-  - Return `true` if your plugin is temporary (games, viewers, utilities)
-  - Return `false` if your plugin should exit k10s entirely
+- **Return Value**: Return `nil` on success or an `error` if the plugin fails
 - **Error Handling**: Handle errors gracefully within your plugin
 - **Dependencies**: Add required dependencies to `go.mod`
 - **Testing**: Test your plugin in isolation before integration
@@ -106,12 +102,12 @@ func New() *KittenClimberPlugin {
 For plugins using Bubble Tea or other TUI frameworks:
 
 ```go
-func (p *MyPlugin) Launch() bool {
+func (p *MyPlugin) Launch() error {
     program := tea.NewProgram(myModel{})
     if _, err := program.Run(); err != nil {
-        log.Printf("Error running plugin: %v", err)
+        return fmt.Errorf("error running plugin: %w", err)
     }
-    return true  // Return to k10s
+    return nil  // Return to k10s
 }
 ```
 
@@ -120,14 +116,14 @@ func (p *MyPlugin) Launch() bool {
 For plugins that run command-line tools:
 
 ```go
-func (p *MyPlugin) Launch() bool {
+func (p *MyPlugin) Launch() error {
     cmd := exec.Command("kubectl", "debug", "...")
     output, err := cmd.CombinedOutput()
     if err != nil {
-        fmt.Printf("Error: %v\n", err)
+        return fmt.Errorf("command failed: %w", err)
     }
     fmt.Printf("%s\n", output)
-    return true
+    return nil
 }
 ```
 
@@ -136,11 +132,11 @@ func (p *MyPlugin) Launch() bool {
 For plugins that perform quick actions:
 
 ```go
-func (p *MyPlugin) Launch() bool {
+func (p *MyPlugin) Launch() error {
     fmt.Println("Processing...")
     // Do some work
     fmt.Println("Done!")
     time.Sleep(2 * time.Second)  // Let user see output
-    return true
+    return nil
 }
 ```

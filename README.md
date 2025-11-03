@@ -172,11 +172,10 @@ func (p *MyPlugin) Commands() []string {
     return []string{"myplugin", "mp"}  // Command aliases
 }
 
-func (p *MyPlugin) Launch() bool {
+func (p *MyPlugin) Launch() error {
     // Your plugin logic here
     fmt.Println("Hello from my plugin!")
-    // Return true to restart k10s TUI, false to exit k10s
-    return true
+    return nil
 }
 
 func New() *MyPlugin {
@@ -216,29 +215,17 @@ make build
 
 ### Plugin Interface Reference
 
-```go
-type Plugin interface {
-    // Name returns unique identifier (kebab-case recommended)
-    Name() string
+See the [`Plugin` interface definition](internal/plugins/plugin.go#L8-L23) for the complete API with documentation.
 
-    // Description returns human-readable description
-    Description() string
-
-    // Commands returns command aliases that trigger this plugin
-    Commands() []string
-
-    // Launch executes the plugin
-    // Returns true to restart TUI, false to exit k10s
-    Launch() bool
-}
-```
+Plugins implement:
+- `Name()` - Unique identifier (kebab-case)
+- `Description()` - Shown in help text
+- `Commands()` - Command aliases (e.g., ["play", "game"])
+- `Launch()` - Execute plugin, returns to k10s on exit
 
 ### Plugin Guidelines
 
 - **Commands**: Use short, memorable command aliases (e.g., `play`, `debug`, `tool`)
-- **Launch Return Value**:
-  - Return `true` if your plugin is a temporary utility (game, viewer, etc.)
-  - Return `false` if your plugin should exit k10s entirely
 - **Error Handling**: Handle errors gracefully within your plugin
 - **Dependencies**: Add any required dependencies to `go.mod`
 - **Data Storage**: Store plugin data in isolated directories to avoid cross-contamination
@@ -252,12 +239,12 @@ type Plugin interface {
 For TUI-based plugins using Bubble Tea:
 
 ```go
-func (p *MyPlugin) Launch() bool {
+func (p *MyPlugin) Launch() error {
     program := tea.NewProgram(myModel{})
     if _, err := program.Run(); err != nil {
-        log.Printf("Error running plugin: %v", err)
+        return fmt.Errorf("error running plugin: %w", err)
     }
-    return true  // Return to k10s after plugin exits
+    return nil  // Return to k10s after plugin exits
 }
 ```
 

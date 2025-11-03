@@ -57,7 +57,6 @@ type Model struct {
 	err                error
 	commandErr         string
 	commandSuccess     string
-	shouldLaunchGame   bool
 	pluginRegistry     *plugins.Registry
 	pluginToLaunch     plugins.Plugin
 }
@@ -89,12 +88,14 @@ type commandSuccessMsg struct {
 
 type clearCommandSuccessMsg struct{}
 
-type launchGameMsg struct{}
-
 // New creates a new TUI model with the provided configuration and Kubernetes client.
 // The client may be nil or disconnected - the TUI will handle this gracefully and
 // display appropriate status messages.
 func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) Model {
+	if registry == nil {
+		registry = plugins.NewRegistry()
+	}
+
 	ti := textinput.New()
 	ti.Placeholder = "Enter command..."
 	ti.CharLimit = 100
@@ -132,9 +133,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) Mod
 	}
 
 	suggestions := []string{"pods", "nodes", "namespaces", "services", "ns", "quit", "q", "reconnect", "r", "cplogs", "cp"}
-	if registry != nil {
-		suggestions = append(suggestions, registry.CommandSuggestions()...)
-	}
+	suggestions = append(suggestions, registry.CommandSuggestions()...)
 
 	keys := newKeyMap()
 
@@ -184,11 +183,6 @@ func (m Model) Init() tea.Cmd {
 		)
 	}
 	return nil
-}
-
-// ShouldLaunchGame returns true if the game should be launched after TUI exits.
-func (m Model) ShouldLaunchGame() bool {
-	return m.shouldLaunchGame
 }
 
 func (m Model) GetPluginToLaunch() plugins.Plugin {
@@ -335,10 +329,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clearCommandSuccessMsg:
 		m.commandSuccess = ""
 		return m, nil
-
-	case launchGameMsg:
-		m.shouldLaunchGame = true
-		return m, tea.Quit
 
 	case launchPluginMsg:
 		m.pluginToLaunch = msg.plugin
