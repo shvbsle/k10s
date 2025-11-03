@@ -1,9 +1,11 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/adrg/xdg"
 	tea "github.com/charmbracelet/bubbletea"
@@ -12,15 +14,76 @@ import (
 	"github.com/shvbsle/k10s/internal/tui"
 )
 
-// setupLogging configures logging to write to the XDG state directory at
-// ~/.local/state/k10s/k10s.log (or platform equivalent). It sets up a
-// structured logger using slog. Returns the log file handle and an error
-// if the log file cannot be created or opened.
-func setupLogging() (*os.File, error) {
+// parseLogLevel parses a log level string and returns the corresponding slog.Level.
+// Supports: debug, info, warn, error (case-insensitive).
+// Returns slog.LevelInfo if the level string is invalid.
+func parseLogLevel(level string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// getLogPath determines the log file path to use.
+// Priority: customPath (from config) > XDG default path
+// If customPath is invalid, falls back to XDG path.
+func getLogPath(customPath string) (string, error) {
+	// If custom path is provided, try to use it
+	if customPath != "" {
+		// Expand ~ to home directory
+		if strings.HasPrefix(customPath, "~/") {
+			homeDir, err := os.UserHomeDir()
+			if err == nil {
+				customPath = strings.Replace(customPath, "~", homeDir, 1)
+			}
+		}
+
+		// Try to create parent directories if they don't exist
+		var dir string
+		if lastSlash := strings.LastIndex(customPath, "/"); lastSlash > 0 {
+			dir = customPath[:lastSlash]
+		} else {
+			// No directory separator, use current directory
+			dir = "."
+		}
+
+		if err := os.MkdirAll(dir, 0755); err == nil {
+			// Test if we can write to this location
+			testFile, err := os.OpenFile(customPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+			if err == nil {
+				_ = testFile.Close() // Ignore close error on test file
+				return customPath, nil
+			}
+		}
+
+		// If custom path fails, we'll fall through to XDG default
+		fmt.Fprintf(os.Stderr, "Warning: could not use custom log path %s, falling back to XDG default\n", customPath)
+	}
+
 	// Use XDG state directory for cross-platform log storage
 	logPath, err := xdg.StateFile("k10s/k10s.log")
 	if err != nil {
-		return nil, fmt.Errorf("could not get log path: %w", err)
+		return "", fmt.Errorf("could not get log path: %w", err)
+	}
+
+	return logPath, nil
+}
+
+// setupLogging configures logging to write to the specified log file.
+// It sets up a structured logger using slog. Returns the log file handle
+// and an error if the log file cannot be created or opened.
+func setupLogging(logLevel slog.Level, customLogPath string) (*os.File, error) {
+	logPath, err := getLogPath(customLogPath)
+	if err != nil {
+		return nil, err
 	}
 
 	f, err := os.OpenFile(logPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
@@ -30,18 +93,37 @@ func setupLogging() (*os.File, error) {
 
 	// Create a JSON handler for structured logging
 	handler := slog.NewJSONHandler(f, &slog.HandlerOptions{
-		Level:     slog.LevelInfo,
+		Level:     logLevel,
 		AddSource: true,
 	})
 	logger := slog.New(handler)
 	slog.SetDefault(logger)
 
-	slog.Info("k10s logging initialized", "log_path", logPath)
+	slog.Info("k10s logging initialized", "log_path", logPath, "log_level", logLevel.String())
 	return f, nil
 }
 
 func main() {
-	logFile, err := setupLogging()
+	// Parse CLI flags
+	logLevelFlag := flag.String("log-level", "", "Set log level (debug, info, warn, error). Defaults to info.")
+	flag.Parse()
+
+	// Determine log level from flag (defaults to info if empty)
+	logLevel := parseLogLevel(*logLevelFlag)
+
+	// Load config first to get log path preference
+	if err := config.CreateDefaultConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not create default config: %v\n", err)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to load configuration: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Setup logging with custom path from config (if specified)
+	logFile, err := setupLogging(logLevel, cfg.LogFilePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not setup logging: %v\n", err)
 	} else if logFile != nil {
@@ -53,16 +135,6 @@ func main() {
 	}
 
 	slog.Info("k10s starting", "version", tui.Version)
-
-	if err := config.CreateDefaultConfig(); err != nil {
-		slog.Warn("could not create default config", "error", err)
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		slog.Error("failed to load configuration", "error", err)
-		os.Exit(1)
-	}
 	slog.Info("configuration loaded", "page_size", cfg.PageSize)
 
 	// Don't exit on failure, let TUI handle it
