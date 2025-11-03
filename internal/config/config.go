@@ -177,3 +177,17 @@ logo_end
 func (c *Config) String() string {
 	return fmt.Sprintf("PageSize: %d\nLogo:\n%s", c.PageSize, c.Logo)
 }
+
+func GetPluginDataDir(pluginName string) (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("could not get user home directory: %w", err)
+	}
+
+	pluginDir := filepath.Join(homeDir, ".k10s", "plugins", pluginName)
+	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+		return "", fmt.Errorf("could not create plugin data directory: %w", err)
+	}
+
+	return pluginDir, nil
+}

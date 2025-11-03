@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/shvbsle/k10s/internal/config"
 	"github.com/shvbsle/k10s/internal/k8s"
+	"github.com/shvbsle/k10s/internal/plugins"
 )
 
 // Version is the current version of k10s.
@@ -56,6 +57,8 @@ type Model struct {
 	err                error
 	commandErr         string
 	commandSuccess     string
+	pluginRegistry     *plugins.Registry
+	pluginToLaunch     plugins.Plugin
 }
 
 type errMsg struct{ err error }
@@ -88,7 +91,11 @@ type clearCommandSuccessMsg struct{}
 // New creates a new TUI model with the provided configuration and Kubernetes client.
 // The client may be nil or disconnected - the TUI will handle this gracefully and
 // display appropriate status messages.
-func New(cfg *config.Config, client *k8s.Client) Model {
+func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) Model {
+	if registry == nil {
+		registry = plugins.NewRegistry()
+	}
+
 	ti := textinput.New()
 	ti.Placeholder = "Enter command..."
 	ti.CharLimit = 100
@@ -126,6 +133,7 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 	}
 
 	suggestions := []string{"pods", "nodes", "namespaces", "services", "ns", "quit", "q", "reconnect", "r", "cplogs", "cp"}
+	suggestions = append(suggestions, registry.CommandSuggestions()...)
 
 	keys := newKeyMap()
 
@@ -161,6 +169,7 @@ func New(cfg *config.Config, client *k8s.Client) Model {
 		selectedSuggestion: -1,
 		navigationHistory:  NewNavigationHistory(),
 		logView:            NewLogViewState(),
+		pluginRegistry:     registry,
 	}
 }
 
@@ -174,6 +183,10 @@ func (m Model) Init() tea.Cmd {
 		)
 	}
 	return nil
+}
+
+func (m Model) GetPluginToLaunch() plugins.Plugin {
+	return m.pluginToLaunch
 }
 
 // ShortHelp returns context-aware short help based on current view.
@@ -316,6 +329,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clearCommandSuccessMsg:
 		m.commandSuccess = ""
 		return m, nil
+
+	case launchPluginMsg:
+		m.pluginToLaunch = msg.plugin
+		return m, tea.Quit
 
 	case logsCopiedMsg:
 		if msg.success {
