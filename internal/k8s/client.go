@@ -3,7 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -96,7 +96,7 @@ func (c *Client) testConnection() bool {
 
 func (c *Client) markDisconnected() {
 	if c.isConnected {
-		log.Printf("K8s: Client disconnected from cluster")
+		slog.Warn("client disconnected from cluster")
 		c.isConnected = false
 	}
 }

@@ -2,7 +2,7 @@ package tui
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,7 +19,7 @@ type launchPluginMsg struct {
 func (m Model) executeCommand(command string) tea.Cmd {
 	originalCommand := command
 	command = strings.ToLower(strings.TrimSpace(command))
-	log.Printf("TUI: Executing command: %s", command)
+	slog.Info("executing command", "command", command)
 
 	parts := strings.Fields(command)
 	if len(parts) == 0 {
@@ -127,7 +127,7 @@ func (m Model) loadResourcesWithNamespace(resType k8s.ResourceType, namespace st
 		}
 
 		if err != nil {
-			log.Printf("TUI: Failed to load %s: %v", resType, err)
+			slog.Error("failed to load resources", "resource_type", resType, "error", err)
 			return errMsg{err}
 		}
 		return resourcesLoadedMsg{
@@ -142,21 +142,21 @@ func (m Model) loadResourcesWithNamespace(resType k8s.ResourceType, namespace st
 func (m Model) reconnectCmd() tea.Cmd {
 	return func() tea.Msg {
 		if m.k8sClient == nil {
-			log.Printf("TUI: Reconnect failed: no client available")
+			slog.Warn("reconnect failed: no client available")
 			return errMsg{fmt.Errorf("no client available")}
 		}
 
-		log.Printf("TUI: Attempting to reconnect to cluster...")
+		slog.Info("attempting to reconnect to cluster")
 		err := m.k8sClient.Reconnect()
 		if err != nil {
-			log.Printf("TUI: Reconnect failed: %v", err)
+			slog.Error("reconnect failed", "error", err)
 			return errMsg{fmt.Errorf("reconnect failed: %w", err)}
 		}
 
-		log.Printf("TUI: Reconnect successful, loading pods...")
+		slog.Info("reconnect successful, loading pods")
 		resources, err := m.k8sClient.ListPods("")
 		if err != nil {
-			log.Printf("TUI: Failed to load pods after reconnect: %v", err)
+			slog.Error("failed to load pods after reconnect", "error", err)
 			return errMsg{err}
 		}
 		return resourcesLoadedMsg{
@@ -169,7 +169,7 @@ func (m Model) reconnectCmd() tea.Cmd {
 
 func (m Model) launchPluginCmd(plugin plugins.Plugin) tea.Cmd {
 	return func() tea.Msg {
-		log.Printf("TUI: Launching plugin: %s", plugin.Name())
+		slog.Info("launching plugin command", "plugin", plugin.Name())
 		return launchPluginMsg{plugin: plugin}
 	}
 }
@@ -253,7 +253,7 @@ func (m Model) loadPodsOnNode(nodeName string, namespace string) tea.Cmd {
 	return func() tea.Msg {
 		resources, err := m.k8sClient.ListPodsOnNode(nodeName, namespace)
 		if err != nil {
-			log.Printf("TUI: Failed to load pods on node: %v", err)
+			slog.Error("failed to load pods on node", "node", nodeName, "namespace", namespace, "error", err)
 			return errMsg{err}
 		}
 		return resourcesLoadedMsg{
@@ -269,7 +269,7 @@ func (m Model) loadPodsForService(serviceName string, namespace string) tea.Cmd 
 	return func() tea.Msg {
 		resources, err := m.k8sClient.ListPodsForService(serviceName, namespace)
 		if err != nil {
-			log.Printf("TUI: Failed to load pods for service: %v", err)
+			slog.Error("failed to load pods for service", "service", serviceName, "namespace", namespace, "error", err)
 			return errMsg{err}
 		}
 		return resourcesLoadedMsg{
@@ -285,7 +285,7 @@ func (m Model) loadContainersForPod(podName string, namespace string) tea.Cmd {
 	return func() tea.Msg {
 		resources, err := m.k8sClient.ListContainersForPod(podName, namespace)
 		if err != nil {
-			log.Printf("TUI: Failed to load containers: %v", err)
+			slog.Error("failed to load containers", "pod", podName, "namespace", namespace, "error", err)
 			return errMsg{err}
 		}
 		return resourcesLoadedMsg{
@@ -301,7 +301,7 @@ func (m Model) loadLogsForContainer(podName string, namespace string, containerN
 	return func() tea.Msg {
 		logLines, err := m.k8sClient.GetContainerLogs(podName, namespace, containerName, m.config.LogTailLines, true)
 		if err != nil {
-			log.Printf("TUI: Failed to load logs: %v", err)
+			slog.Error("failed to load logs", "pod", podName, "namespace", namespace, "container", containerName, "error", err)
 			return errMsg{err}
 		}
 		return logsLoadedMsg{

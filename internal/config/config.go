@@ -39,6 +39,7 @@ type Config struct {
 	LogTailLines    int
 	Logo            string
 	PaginationStyle PaginationStyle
+	LogFilePath     string // Custom log file path (empty means use XDG default)
 }
 
 // Load reads the k10s configuration from ~/.k10s.conf. If the file doesn't
@@ -119,6 +120,9 @@ func Load() (*Config, error) {
 			case "verbose":
 				cfg.PaginationStyle = PaginationStyleVerbose
 			}
+		case "k10s_log_path":
+			// Accept the value as-is, will be validated in setupLogging
+			cfg.LogFilePath = value
 		}
 	}
 
@@ -150,6 +154,14 @@ log_tail_lines=100
 # Pagination style: "bubbles" (dots) or "verbose" (text like "Page 1/10")
 # Default: bubbles
 pagination_style=bubbles
+
+# Log file path for k10s internal logs
+# If commented out or empty, logs will be stored in the default XDG state directory:
+#   - macOS: ~/Library/Application Support/k10s/k10s.log
+#   - Linux: ~/.local/state/k10s/k10s.log
+# You can override this with a custom path (supports ~ for home directory)
+# Example: k10s_log_path=/var/log/k10s.log
+# k10s_log_path=
 
 # ASCII logo (between logo_start and logo_end)
 logo_start
