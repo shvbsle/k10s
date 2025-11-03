@@ -8,7 +8,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/shvbsle/k10s/internal/k8s"
+	"github.com/shvbsle/k10s/internal/plugins"
 )
+
+type launchPluginMsg struct {
+	plugin plugins.Plugin
+}
 
 // executeCommand processes a command string and returns the appropriate tea command.
 func (m Model) executeCommand(command string) tea.Cmd {
@@ -23,6 +28,10 @@ func (m Model) executeCommand(command string) tea.Cmd {
 
 	baseCommand := parts[0]
 	args := parts[1:]
+
+	if plugin, ok := m.pluginRegistry.GetByCommand(baseCommand); ok {
+		return m.launchPluginCmd(plugin)
+	}
 
 	switch baseCommand {
 	case "quit", "q":
@@ -155,6 +164,13 @@ func (m Model) reconnectCmd() tea.Cmd {
 			resType:   k8s.ResourcePods,
 			namespace: "", // All namespaces after reconnect
 		}
+	}
+}
+
+func (m Model) launchPluginCmd(plugin plugins.Plugin) tea.Cmd {
+	return func() tea.Msg {
+		log.Printf("TUI: Launching plugin: %s", plugin.Name())
+		return launchPluginMsg{plugin: plugin}
 	}
 }
 

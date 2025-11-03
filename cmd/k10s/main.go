@@ -3,20 +3,19 @@ package main
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 
 	"github.com/adrg/xdg"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/shvbsle/k10s/internal/config"
 	"github.com/shvbsle/k10s/internal/k8s"
+	"github.com/shvbsle/k10s/internal/plugins"
+	"github.com/shvbsle/k10s/internal/plugins/kitten"
 	"github.com/shvbsle/k10s/internal/tui"
 )
 
-// setupLogging configures logging to write to the XDG state directory at
-// ~/.local/state/k10s/k10s.log (or platform equivalent). Returns an error
-// if the log file cannot be created or opened.
 func setupLogging() error {
-	// Use XDG state directory for cross-platform log storage
 	logPath, err := xdg.StateFile("k10s/k10s.log")
 	if err != nil {
 		return fmt.Errorf("could not get log path: %w", err)
@@ -49,7 +48,6 @@ func main() {
 	}
 	log.Printf("Configuration loaded (page_size=%d)", cfg.PageSize)
 
-	// Don't exit on failure, let TUI handle it
 	client, err := k8s.NewClient()
 	if err != nil {
 		log.Printf("Warning: could not initialize Kubernetes client: %v", err)
@@ -63,17 +61,45 @@ func main() {
 		}
 	}
 
-	// Works even if client is nil or disconnected
+	pluginRegistry := plugins.NewRegistry()
+	pluginRegistry.Register(kitten.New())
+	log.Printf("Loaded %d plugins", len(pluginRegistry.List()))
+
 	log.Printf("Starting TUI...")
-	m := tui.New(cfg, client)
 
-	p := tea.NewProgram(
-		m,
-		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
-	)
+	for {
+		p := tea.NewProgram(
+			tui.New(cfg, client, pluginRegistry),
+			tea.WithAltScreen(),
+			tea.WithMouseCellMotion(),
+		)
 
-	if _, err := p.Run(); err != nil {
-		log.Fatal(err)
+		finalModel, err := p.Run()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if finalModel == nil {
+			break
+		}
+
+		model, ok := finalModel.(tui.Model)
+		if !ok {
+			break
+		}
+
+		plugin := model.GetPluginToLaunch()
+		if plugin == nil {
+			break
+		}
+
+		slog.Info("launching plugin", "plugin", plugin.Name())
+		if err := plugin.Launch(); err != nil {
+			slog.Error("plugin launch failed", "plugin", plugin.Name(), "error", err)
+		}
+
+		slog.Info("returning to k10s TUI")
 	}
+
+	slog.Info("k10s exiting")
 }
