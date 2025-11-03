@@ -2,7 +2,7 @@ package tui
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -291,7 +291,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case errMsg:
-		log.Printf("TUI: Error occurred: %v", msg.err)
+		slog.Error("error occurred", "error", msg.err)
 		m.err = msg.err
 		return m, nil
 

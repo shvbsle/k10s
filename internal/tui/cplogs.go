@@ -2,7 +2,7 @@ package tui
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,14 +70,14 @@ func (m Model) executeCplogsCommand(args []string) tea.Cmd {
 			// Copy to clipboard
 			err := clipboard.WriteAll(formattedLogs)
 			if err != nil {
-				log.Printf("TUI: Failed to copy logs to clipboard: %v", err)
+				slog.Error("failed to copy logs to clipboard", "error", err)
 				return logsCopiedMsg{
 					success: false,
 					message: fmt.Sprintf("failed to copy to clipboard: %v", err),
 				}
 			}
 
-			log.Printf("TUI: Copied %d log lines (%s) to clipboard", len(logsToProcess), scope)
+			slog.Info("copied logs to clipboard", "lines", len(logsToProcess), "scope", scope)
 			return logsCopiedMsg{
 				success: true,
 				message: fmt.Sprintf("Copied %d lines (%s) to clipboard", len(logsToProcess), scope),
@@ -86,14 +86,14 @@ func (m Model) executeCplogsCommand(args []string) tea.Cmd {
 			// Write to file
 			err := m.writeLogsToFile(formattedLogs, filePath)
 			if err != nil {
-				log.Printf("TUI: Failed to write logs to file %s: %v", filePath, err)
+				slog.Error("failed to write logs to file", "file_path", filePath, "error", err)
 				return logsCopiedMsg{
 					success: false,
 					message: fmt.Sprintf("failed to write to file: %v", err),
 				}
 			}
 
-			log.Printf("TUI: Wrote %d log lines (%s) to file: %s", len(logsToProcess), scope, filePath)
+			slog.Info("wrote logs to file", "lines", len(logsToProcess), "scope", scope, "file_path", filePath)
 			return logsCopiedMsg{
 				success: true,
 				message: fmt.Sprintf("Wrote %d lines (%s) to %s", len(logsToProcess), scope, filePath),
