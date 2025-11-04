@@ -89,7 +89,7 @@ func GetServerGVRs(discovery discovery.DiscoveryInterface) []schema.GroupVersion
 	}
 
 	for _, apiResourceList := range apiResourceLists {
-		// SATEFY: cannot fail on a field provided by the api server
+		// SAFETY: cannot fail on a field provided by the api server
 		gv, _ := schema.ParseGroupVersion(apiResourceList.GroupVersion)
 
 		for _, apiResource := range apiResourceList.APIResources {

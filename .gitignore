@@ -38,3 +38,4 @@ CLAUDE.md
 
 # Play/test files
 k10s-play.yaml
+*.log

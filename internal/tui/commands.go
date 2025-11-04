@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"text/template"
 
@@ -30,7 +29,7 @@ type launchPluginMsg struct {
 func (m *Model) executeCommand(command string) tea.Cmd {
 	originalCommand := command
 	command = strings.ToLower(strings.TrimSpace(command))
-	slog.Info("executing command", "command", command)
+	log.G().Info("executing command", "command", command)
 
 	parts := strings.Fields(command)
 	if len(parts) == 0 {
@@ -105,7 +104,7 @@ func (m *Model) loadResourcesWithNamespace(gvr schema.GroupVersionResource, name
 			Namespace(namespace).
 			List(context.TODO(), m.listOptions)
 		if err != nil {
-			slog.Error("failed to load resources", "gvr", gvr, "error", err)
+			log.G().Error("failed to load resources", "gvr", gvr, "error", err)
 			return errMsg{err}
 		}
 
@@ -126,25 +125,25 @@ func (m *Model) loadResourcesWithNamespace(gvr schema.GroupVersionResource, name
 func (m *Model) reconnectCmd() tea.Cmd {
 	return func() tea.Msg {
 		if m.k8sClient == nil {
-			slog.Warn("reconnect failed", "reason", "no client available")
+			log.G().Warn("reconnect failed", "reason", "no client available")
 			return errMsg{fmt.Errorf("no client available")}
 		}
 
-		slog.Info("attempting to reconnect to cluster")
+		log.G().Info("attempting to reconnect to cluster")
 		err := m.k8sClient.Reconnect()
 		if err != nil {
-			slog.Error("reconnect failed", "error", err)
+			log.G().Error("reconnect failed", "error", err)
 			return errMsg{fmt.Errorf("reconnect failed: %w", err)}
 		}
 
-		slog.Info("reconnect successful, loading resources")
+		log.G().Info("reconnect successful, loading resources")
 		return m.loadResources(m.currentGVR.Resource)
 	}
 }
 
 func (m *Model) launchPluginCmd(plugin plugins.Plugin) tea.Cmd {
 	return func() tea.Msg {
-		slog.Info("launching plugin command", "plugin", plugin.Name())
+		log.G().Info("launching plugin command", "plugin", plugin.Name())
 		return launchPluginMsg{plugin: plugin}
 	}
 }
@@ -195,7 +194,7 @@ func (m *Model) drillDown(selectedResource k8s.OrderedResourceFields) tea.Cmd {
 		return func() tea.Msg {
 			resources, err := m.k8sClient.ListContainersForPod(selectedName, selectedNamespace)
 			if err != nil {
-				log.TUI("Failed to load containers: %v", err)
+				log.TUI().Error("Failed to load containers", "error", err)
 				return errMsg{err}
 			}
 			return resourcesLoadedMsg{
@@ -214,7 +213,7 @@ func (m *Model) drillDown(selectedResource k8s.OrderedResourceFields) tea.Cmd {
 		return func() tea.Msg {
 			logLines, err := m.k8sClient.GetContainerLogs(podName, podNamespace, selectedName, m.config.LogTailLines, true)
 			if err != nil {
-				log.TUI("Failed to load logs: %v", err)
+				log.TUI().Error("Failed to load logs", "error", err)
 				return errMsg{err}
 			}
 			return logsLoadedMsg{
@@ -230,7 +229,7 @@ func (m *Model) drillDown(selectedResource k8s.OrderedResourceFields) tea.Cmd {
 	resourceSchema := resources.GetResourceView(m.currentGVR.Resource)
 
 	if resourceSchema.DrillDown == nil {
-		log.TUI("drill down not supported for this type: %s", m.currentGVR)
+		log.TUI().Warn("drill down not supported for this resource", "GVR", m.currentGVR)
 		return func() tea.Msg {
 			return errMsg{err: fmt.Errorf("drill down not supported for this type: %s", m.currentGVR)}
 		}

@@ -3,10 +3,10 @@ package k8s
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 
+	"github.com/shvbsle/k10s/internal/log"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
@@ -76,7 +76,7 @@ func (c *Client) testConnection() bool {
 
 func (c *Client) markDisconnected() {
 	if c.isConnected {
-		slog.Warn("client disconnected from cluster")
+		log.G().Warn("client disconnected from cluster")
 		c.isConnected = false
 	}
 }

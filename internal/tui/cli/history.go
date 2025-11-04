@@ -44,5 +44,5 @@ func (p *commandHistory) MoveIndex(amount int) string {
 	if p.index < 0 {
 		return ""
 	}
-	return p.deque.At(p.index % p.deque.Len())
+	return p.deque.At(p.index)
 }

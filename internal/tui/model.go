@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/shvbsle/k10s/internal/config"
 	"github.com/shvbsle/k10s/internal/k8s"
+	"github.com/shvbsle/k10s/internal/log"
 	"github.com/shvbsle/k10s/internal/plugins"
 	"github.com/shvbsle/k10s/internal/tui/cli"
 	"github.com/shvbsle/k10s/internal/tui/resources"
@@ -316,7 +316,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case errMsg:
-		slog.Error("error occurred", "error", msg.err)
+		log.G().Error("error occurred", "error", msg.err)
 		m.err = msg.err
 		return m, nil
 

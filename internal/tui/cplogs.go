@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/shvbsle/k10s/internal/k8s"
+	"github.com/shvbsle/k10s/internal/log"
 )
 
 type logsCopiedMsg struct {
@@ -70,14 +70,14 @@ func (m *Model) executeCplogsCommand(args []string) tea.Cmd {
 			// Copy to clipboard
 			err := clipboard.WriteAll(formattedLogs)
 			if err != nil {
-				slog.Error("failed to copy logs to clipboard", "error", err)
+				log.G().Error("failed to copy logs to clipboard", "error", err)
 				return logsCopiedMsg{
 					success: false,
 					message: fmt.Sprintf("failed to copy to clipboard: %v", err),
 				}
 			}
 
-			slog.Info("copied logs to clipboard", "lines", len(logsToProcess), "scope", scope)
+			log.G().Info("copied logs to clipboard", "lines", len(logsToProcess), "scope", scope)
 			return logsCopiedMsg{
 				success: true,
 				message: fmt.Sprintf("Copied %d lines (%s) to clipboard", len(logsToProcess), scope),
@@ -86,14 +86,14 @@ func (m *Model) executeCplogsCommand(args []string) tea.Cmd {
 			// Write to file
 			err := m.writeLogsToFile(formattedLogs, filePath)
 			if err != nil {
-				slog.Error("failed to write logs to file", "file_path", filePath, "error", err)
+				log.G().Error("failed to write logs to file", "file_path", filePath, "error", err)
 				return logsCopiedMsg{
 					success: false,
 					message: fmt.Sprintf("failed to write to file: %v", err),
 				}
 			}
 
-			slog.Info("wrote logs to file", "lines", len(logsToProcess), "scope", scope, "file_path", filePath)
+			log.G().Info("wrote logs to file", "lines", len(logsToProcess), "scope", scope, "file_path", filePath)
 			return logsCopiedMsg{
 				success: true,
 				message: fmt.Sprintf("Wrote %d lines (%s) to %s", len(logsToProcess), scope, filePath),
