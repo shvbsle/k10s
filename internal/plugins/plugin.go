@@ -1,8 +1,9 @@
 package plugins
 
 import (
-	"log/slog"
 	"sync"
+
+	"github.com/shvbsle/k10s/internal/log"
 )
 
 // Plugin represents an extension that adds functionality to k10s.
@@ -42,7 +43,7 @@ func (r *Registry) Register(p Plugin) {
 	defer r.mu.Unlock()
 
 	if _, exists := r.plugins[p.Name()]; exists {
-		slog.Warn("plugin already registered", "plugin", p.Name())
+		log.G().Warn("plugin already registered", "plugin", p.Name())
 	}
 
 	r.plugins[p.Name()] = p
@@ -50,7 +51,7 @@ func (r *Registry) Register(p Plugin) {
 
 	for _, cmd := range p.Commands() {
 		if existingPlugin, exists := r.commandMap[cmd]; exists {
-			slog.Warn("command collision",
+			log.G().Warn("command collision",
 				"command", cmd,
 				"existing_plugin", existingPlugin.Name(),
 				"new_plugin", p.Name())

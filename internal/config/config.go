@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	// DefaultPageSize is the default number of items to display per page.
-	DefaultPageSize = 20
+	// DefaultMaxPageSize is the default number of items to display per page.
+	DefaultMaxPageSize = 20
 	// DefaultLogTailLines is the default number of log lines to fetch.
 	DefaultLogTailLines = 100
 	// DefaultLogo is the default ASCII art logo displayed in the TUI header.
@@ -35,7 +35,7 @@ const (
 // Config holds the user configuration for k10s, including display preferences
 // like page size and the ASCII logo to show in the header.
 type Config struct {
-	PageSize        int
+	MaxPageSize     int
 	LogTailLines    int
 	Logo            string
 	PaginationStyle PaginationStyle
@@ -46,7 +46,7 @@ type Config struct {
 // exist or cannot be read, it returns a Config with default values.
 func Load() (*Config, error) {
 	cfg := &Config{
-		PageSize:        DefaultPageSize,
+		MaxPageSize:     DefaultMaxPageSize,
 		LogTailLines:    DefaultLogTailLines,
 		Logo:            DefaultLogo,
 		PaginationStyle: PaginationStyleBubbles,
@@ -105,9 +105,10 @@ func Load() (*Config, error) {
 		value := strings.TrimSpace(parts[1])
 
 		switch key {
+		// TODO: rename to max_page_size
 		case "page_size":
 			if size, err := strconv.Atoi(value); err == nil && size > 0 {
-				cfg.PageSize = size
+				cfg.MaxPageSize = size
 			}
 		case "log_tail_lines":
 			if lines, err := strconv.Atoi(value); err == nil && lines > 0 {
@@ -175,7 +176,7 @@ logo_end
 }
 
 func (c *Config) String() string {
-	return fmt.Sprintf("PageSize: %d\nLogo:\n%s", c.PageSize, c.Logo)
+	return fmt.Sprintf("PageSize: %d\nLogo:\n%s", c.MaxPageSize, c.Logo)
 }
 
 func GetPluginDataDir(pluginName string) (string, error) {

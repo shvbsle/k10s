@@ -1,0 +1,193 @@
+{
+  "pods": {
+    "fields": [
+      {
+        "name": "Namespace",
+        "resolver": {
+          "path": "{{ .metadata.namespace }}"
+        },
+        "weight": 0.12
+      },
+      {
+        "name": "Name",
+        "resolver": {
+          "path": "{{ .metadata.name }}"
+        },
+        "weight": 0.3
+      },
+      {
+        "name": "Node",
+        "resolver": {
+          "path": "{{ .spec.nodeName }}"
+        },
+        "weight": 0.18
+      },
+      {
+        "name": "Status",
+        "resolver": {
+          "func": "podStatus"
+        },
+        "weight": 0.12
+      },
+      {
+        "name": "Age",
+        "resolver": {
+          "func": "age"
+        },
+        "weight": 0.08
+      },
+      {
+        "name": "Pod IP",
+        "resolver": {
+          "path": "{{ .status.podIP }}"
+        },
+        "weight": 0.2
+      }
+    ]
+  },
+  "nodes": {
+    "drill": {
+      "resource": "pods",
+      "selectors": [
+        "spec.nodeName={{ .metadata.name }}"
+      ]
+    },
+    "fields": [
+      {
+        "name": "Name",
+        "resolver": {
+          "path": "{{ .metadata.name }}"
+        },
+        "weight": 0.4
+      },
+      {
+        "name": "Age",
+        "resolver": {
+          "func": "age"
+        },
+        "weight": 0.3
+      },
+      {
+        "name": "Node IP",
+        "resolver": {
+          "path": "{{ (index .status.addresses 0).address }}"
+        },
+        "weight": 0.3
+      }
+    ]
+  },
+  "deployments": {
+    "fields": [
+      {
+        "name": "Namespace",
+        "resolver": {
+          "path": "{{ .metadata.namespace }}"
+        },
+        "weight": 0.2
+      },
+      {
+        "name": "Name",
+        "resolver": {
+          "path": "{{ .metadata.name }}"
+        },
+        "weight": 0.2
+      },
+      {
+        "name": "Desired",
+        "resolver": {
+          "path": "{{ .spec.replicas }}"
+        },
+        "weight": 0.1
+      },
+      {
+        "name": "Current",
+        "resolver": {
+          "path": "{{ .status.readyReplicas }}"
+        },
+        "weight": 0.1
+      },
+      {
+        "name": "Up-to-Date",
+        "resolver": {
+          "path": "{{ .status.updatedReplicas }}"
+        },
+        "weight": 0.1
+      },
+      {
+        "name": "Available",
+        "resolver": {
+          "path": "{{ .status.availableReplicas }}"
+        },
+        "weight": 0.1
+      },
+      {
+        "name": "Age",
+        "resolver": {
+          "func": "age"
+        },
+        "weight": 0.2
+      }
+    ]
+  },
+  "services": {
+    "fields": [
+      {
+        "name": "Namespace",
+        "resolver": {
+          "path": "{{ .metadata.namespace }}"
+        },
+        "weight": 0.4
+      },
+      {
+        "name": "Name",
+        "resolver": {
+          "path": "{{ .metadata.name }}"
+        },
+        "weight": 0.3
+      },
+      {
+        "name": "Cluster-IP",
+        "resolver": {
+          "path": "{{ .spec.clusterIP }}"
+        },
+        "weight": 0.3
+      }
+    ]
+  },
+  "containers": {
+    "fields": [
+      {
+        "name": "Name",
+        "weight": 0.2
+      },
+      {
+        "name": "Type",
+        "weight": 0.2
+      },
+      {
+        "name": "Image",
+        "weight": 0.2
+      },
+      {
+        "name": "Status",
+        "weight": 0.2
+      },
+      {
+        "name": "Restarts",
+        "weight": 0.1
+      },
+      {
+        "name": "Ready",
+        "weight": 0.1
+      }
+    ]
+  },
+  "logs": {
+    "fields": [
+      {
+        "name": "",
+        "weight": 1
+      }
+    ]
+  }
+}

@@ -3,9 +3,11 @@ package k8s
 import (
 	"fmt"
 	"time"
+
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-func formatAge(t time.Time) string {
+func FormatAge(t time.Time) string {
 	d := time.Since(t)
 
 	if d < time.Minute {
@@ -15,4 +17,13 @@ func formatAge(t time.Time) string {
 	} else {
 		return fmt.Sprintf("%dh", int(d.Hours()))
 	}
+}
+
+func FormatGVR(gvr schema.GroupVersionResource) string {
+	resource := gvr.Resource
+	if len(gvr.Group) > 0 {
+		resource += "." + gvr.Group
+	}
+	resource += "/" + gvr.Version
+	return resource
 }

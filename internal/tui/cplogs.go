@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/shvbsle/k10s/internal/k8s"
+	"github.com/shvbsle/k10s/internal/log"
 )
 
 type logsCopiedMsg struct {
@@ -19,9 +19,9 @@ type logsCopiedMsg struct {
 
 // executeCplogsCommand copies or writes container logs.
 // Usage: :cplogs [all] [path]
-func (m Model) executeCplogsCommand(args []string) tea.Cmd {
+func (m *Model) executeCplogsCommand(args []string) tea.Cmd {
 	// Validate we're in logs view
-	if m.resourceType != k8s.ResourceLogs {
+	if m.currentGVR.Resource != k8s.ResourceLogs {
 		return m.showCommandError("cplogs only works in logs view")
 	}
 
@@ -70,14 +70,14 @@ func (m Model) executeCplogsCommand(args []string) tea.Cmd {
 			// Copy to clipboard
 			err := clipboard.WriteAll(formattedLogs)
 			if err != nil {
-				slog.Error("failed to copy logs to clipboard", "error", err)
+				log.G().Error("failed to copy logs to clipboard", "error", err)
 				return logsCopiedMsg{
 					success: false,
 					message: fmt.Sprintf("failed to copy to clipboard: %v", err),
 				}
 			}
 
-			slog.Info("copied logs to clipboard", "lines", len(logsToProcess), "scope", scope)
+			log.G().Info("copied logs to clipboard", "lines", len(logsToProcess), "scope", scope)
 			return logsCopiedMsg{
 				success: true,
 				message: fmt.Sprintf("Copied %d lines (%s) to clipboard", len(logsToProcess), scope),
@@ -86,14 +86,14 @@ func (m Model) executeCplogsCommand(args []string) tea.Cmd {
 			// Write to file
 			err := m.writeLogsToFile(formattedLogs, filePath)
 			if err != nil {
-				slog.Error("failed to write logs to file", "file_path", filePath, "error", err)
+				log.G().Error("failed to write logs to file", "file_path", filePath, "error", err)
 				return logsCopiedMsg{
 					success: false,
 					message: fmt.Sprintf("failed to write to file: %v", err),
 				}
 			}
 
-			slog.Info("wrote logs to file", "lines", len(logsToProcess), "scope", scope, "file_path", filePath)
+			log.G().Info("wrote logs to file", "lines", len(logsToProcess), "scope", scope, "file_path", filePath)
 			return logsCopiedMsg{
 				success: true,
 				message: fmt.Sprintf("Wrote %d lines (%s) to %s", len(logsToProcess), scope, filePath),
@@ -102,12 +102,9 @@ func (m Model) executeCplogsCommand(args []string) tea.Cmd {
 	}
 }
 
-func (m Model) getCurrentPageLogs() []k8s.LogLine {
+func (m *Model) getCurrentPageLogs() []k8s.LogLine {
 	start := m.paginator.Page * m.paginator.PerPage
-	end := start + m.paginator.PerPage
-	if end > len(m.logLines) {
-		end = len(m.logLines)
-	}
+	end := min(start+m.paginator.PerPage, len(m.logLines))
 
 	if start >= len(m.logLines) {
 		return []k8s.LogLine{}
@@ -116,7 +113,7 @@ func (m Model) getCurrentPageLogs() []k8s.LogLine {
 	return m.logLines[start:end]
 }
 
-func (m Model) formatLogs(logLines []k8s.LogLine) string {
+func (m *Model) formatLogs(logLines []k8s.LogLine) string {
 	var b strings.Builder
 
 	for _, logLine := range logLines {
@@ -130,7 +127,7 @@ func (m Model) formatLogs(logLines []k8s.LogLine) string {
 	return b.String()
 }
 
-func (m Model) writeLogsToFile(content string, filePath string) error {
+func (m *Model) writeLogsToFile(content string, filePath string) error {
 	// Expand ~ to home directory if present
 	if strings.HasPrefix(filePath, "~/") {
 		homeDir, err := os.UserHomeDir()
