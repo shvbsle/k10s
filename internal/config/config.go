@@ -40,6 +40,7 @@ type Config struct {
 	Logo            string
 	PaginationStyle PaginationStyle
 	LogFilePath     string // Custom log file path (empty means use XDG default)
+	ResourceMonitor bool   // Enable CPU/Memory monitoring in header
 }
 
 // Load reads the k10s configuration from ~/.k10s.conf. If the file doesn't
@@ -50,6 +51,7 @@ func Load() (*Config, error) {
 		LogTailLines:    DefaultLogTailLines,
 		Logo:            DefaultLogo,
 		PaginationStyle: PaginationStyleBubbles,
+		ResourceMonitor: true, // Enabled by default
 	}
 
 	home, err := os.UserHomeDir()
@@ -123,6 +125,13 @@ func Load() (*Config, error) {
 		case "k10s_log_path":
 			// Accept the value as-is, will be validated in setupLogging
 			cfg.LogFilePath = value
+		case "resource_monitor":
+			switch value {
+			case "true":
+				cfg.ResourceMonitor = true
+			case "false":
+				cfg.ResourceMonitor = false
+			}
 		}
 	}
 
@@ -162,6 +171,10 @@ pagination_style=bubbles
 # You can override this with a custom path (supports ~ for home directory)
 # Example: k10s_log_path=/var/log/k10s.log
 # k10s_log_path=
+
+# Display CPU and Memory usage in the header (true/false)
+# Default: true
+resource_monitor=true
 
 # ASCII logo (between logo_start and logo_end)
 logo_start
