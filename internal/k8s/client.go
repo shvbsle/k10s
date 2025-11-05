@@ -3,8 +3,6 @@ package k8s
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/shvbsle/k10s/internal/log"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -116,27 +114,14 @@ func (c *Client) Reconnect() error {
 // including the context name, cluster name, default namespace, server URL,
 // and Kubernetes version.
 func (c *Client) GetClusterInfo() (*ClusterInfo, error) {
-	kubeconfig := os.Getenv("KUBECONFIG")
-	if kubeconfig == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		kubeconfig = filepath.Join(home, ".kube", "config")
-	}
+	config := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(clientcmd.NewDefaultClientConfigLoadingRules(), nil)
 
-	// Load the kubeconfig file to extract context/cluster info
-	configLoader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig},
-		&clientcmd.ConfigOverrides{},
-	)
-
-	rawConfig, err := configLoader.RawConfig()
+	rawConfig, err := config.RawConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	namespace, _, err := configLoader.Namespace()
+	namespace, _, err := config.Namespace()
 	if err != nil {
 		namespace = metav1.NamespaceDefault
 	}
@@ -181,22 +166,7 @@ func getKubeConfig() (*rest.Config, error) {
 		return config, nil
 	}
 
-	// Fall back to kubeconfig file
-	kubeconfig := os.Getenv("KUBECONFIG")
-	if kubeconfig == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		kubeconfig = filepath.Join(home, ".kube", "config")
-	}
-
-	config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-	if err != nil {
-		return nil, err
-	}
-
-	return config, nil
+	return clientcmd.BuildConfigFromFlags("", clientcmd.NewDefaultClientConfigLoadingRules().GetDefaultFilename())
 }
 
 // ListContainersForPod retrieves all containers (init and regular) for a specific pod.
