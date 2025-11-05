@@ -73,8 +73,8 @@ func (m *Model) resourceCommand(command string, args []string) tea.Cmd {
 
 	namespace := cli.ParseNamespace(args)
 
-	return m.CommandWithPreflights(
-		m.loadResourcesWithNamespace(m.currentGVR, namespace),
+	return m.commandWithPreflights(
+		m.loadResourcesWithNamespace(m.currentGVR, namespace, metav1.ListOptions{}),
 		m.requireConnection,
 	)
 }
@@ -88,35 +88,36 @@ func (*Model) showCommandError(errMsg string) tea.Cmd {
 
 // loadResources creates a command that loads the specified resource type using current namespace.
 func (m *Model) loadResources(resource string) tea.Cmd {
-	return m.loadResourcesWithNamespace(metav1.Unversioned.WithResource(resource), m.currentNamespace)
+	return m.loadResourcesWithNamespace(metav1.Unversioned.WithResource(resource), m.currentNamespace, metav1.ListOptions{})
 }
 
 // loadResources creates a command that loads the specified resource type using current namespace.
 func (m *Model) loadResourcesGVR(gvr schema.GroupVersionResource) tea.Cmd {
-	return m.loadResourcesWithNamespace(gvr, m.currentNamespace)
+	return m.loadResourcesWithNamespace(gvr, m.currentNamespace, metav1.ListOptions{})
 }
 
 // loadResourcesWithNamespace creates a command that loads the specified resource type from a specific namespace.
-func (m *Model) loadResourcesWithNamespace(gvr schema.GroupVersionResource, namespace string) tea.Cmd {
+func (m *Model) loadResourcesWithNamespace(gvr schema.GroupVersionResource, namespace string, listOptions metav1.ListOptions) tea.Cmd {
 	return func() tea.Msg {
 		resourceList, err := m.k8sClient.Dynamic().
 			Resource(gvr).
 			Namespace(namespace).
-			List(context.TODO(), m.listOptions)
+			List(context.TODO(), listOptions)
 		if err != nil {
 			log.G().Error("failed to load resources", "gvr", gvr, "error", err)
 			return errMsg{err}
 		}
 
 		return resourcesLoadedMsg{
+			gvr:         gvr,
+			namespace:   namespace,
+			listOptions: listOptions,
 			resources: lo.Map(resourceList.Items, func(object unstructured.Unstructured, _ int) k8s.OrderedResourceFields {
 				return k8s.OrderedResourceFields(lo.Map(resources.GetResourceView(gvr.Resource).Fields, func(field resources.ResourceViewField, _ int) string {
 					// TODO: handle more gracefully
 					return lo.Must(field.Resolver.Resolve(object))
 				}))
 			}),
-			resource:  gvr.Resource,
-			namespace: namespace,
 		}
 	}
 }
@@ -199,18 +200,24 @@ func (m *Model) drillDown(selectedResource k8s.OrderedResourceFields) tea.Cmd {
 			}
 			return resourcesLoadedMsg{
 				resources: resources,
-				resource:  k8s.ResourceContainers,
+				// TODO: this gets weird because containers and logs arent
+				// kuberetes resources. this overall needs to be stored as a
+				// different concept for views and for resources.
+				gvr:       schema.GroupVersionResource{Resource: k8s.ResourceContainers},
 				namespace: selectedNamespace,
 			}
 		}
 	case k8s.ResourceContainers:
-		var podName, podNamespace string
-		memento, _ := m.navigationHistory.FindMementoByResourceType(k8s.ResourcePods)
-		if memento != nil {
-			podName = memento.resourceName
-			podNamespace = memento.namespace
-		}
 		return func() tea.Msg {
+			memento, ok := m.navigationHistory.FindMementoByResourceType(k8s.ResourcePods)
+			if !ok {
+				log.TUI().Error("Failed to get pod info from outer memento")
+				return errMsg{fmt.Errorf("failed to get pod info")}
+			}
+			var (
+				podName      = memento.resourceName
+				podNamespace = memento.namespace
+			)
 			logLines, err := m.k8sClient.GetContainerLogs(podName, podNamespace, selectedName, m.config.LogTailLines, true)
 			if err != nil {
 				log.TUI().Error("Failed to load logs", "error", err)
@@ -226,9 +233,9 @@ func (m *Model) drillDown(selectedResource k8s.OrderedResourceFields) tea.Cmd {
 		return nil
 	}
 
-	resourceSchema := resources.GetResourceView(m.currentGVR.Resource)
+	resourceView := resources.GetResourceView(m.currentGVR.Resource)
 
-	if resourceSchema.DrillDown == nil {
+	if resourceView.DrillDown == nil {
 		log.TUI().Warn("drill down not supported for this resource", "GVR", m.currentGVR)
 		return func() tea.Msg {
 			return errMsg{err: fmt.Errorf("drill down not supported for this type: %s", m.currentGVR)}
@@ -238,29 +245,29 @@ func (m *Model) drillDown(selectedResource k8s.OrderedResourceFields) tea.Cmd {
 	object, _ := m.k8sClient.Dynamic().
 		Resource(m.currentGVR).
 		Namespace(m.currentNamespace).
-		Get(context.TODO(), selectedResource[0], metav1.GetOptions{})
+		Get(context.TODO(), selectedName, metav1.GetOptions{})
 
-	fieldSelector := fields.AndSelectors(lo.Map(resourceSchema.DrillDown.SelectorTemplates, func(selectorTemplate string, _ int) fields.Selector {
+	fieldSelector := fields.AndSelectors(lo.Map(resourceView.DrillDown.SelectorTemplates, func(selectorTemplate string, _ int) fields.Selector {
 		var fieldSelectorBuffer bytes.Buffer
 		lo.Must0(template.Must(template.New("").Parse(selectorTemplate)).Execute(&fieldSelectorBuffer, object.UnstructuredContent()))
 		return fields.ParseSelectorOrDie(fieldSelectorBuffer.String())
 	})...)
 
-	// TODO: unset list options
-	m.listOptions = metav1.ListOptions{
-		FieldSelector: fieldSelector.String(),
-	}
-
 	m.currentNamespace = metav1.NamespaceAll
 	if m.isNamespaced(m.currentGVR.Resource) {
-		// TODO: search for the namespace field
-		m.currentNamespace = selectedResource[1]
+		m.currentNamespace = selectedNamespace
 	}
 
-	return m.loadResources(resourceSchema.DrillDown.Resource)
+	return m.loadResourcesWithNamespace(
+		metav1.Unversioned.WithResource(resourceView.DrillDown.Resource),
+		m.currentNamespace,
+		metav1.ListOptions{
+			FieldSelector: fieldSelector.String(),
+		},
+	)
 }
 
-func (m *Model) CommandWithPreflights(cmd tea.Cmd, preflights ...func() error) tea.Cmd {
+func (m *Model) commandWithPreflights(cmd tea.Cmd, preflights ...func() error) tea.Cmd {
 	for _, preflight := range preflights {
 		if err := preflight(); err != nil {
 			return func() tea.Msg {
