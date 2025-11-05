@@ -462,11 +462,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "j", "down":
 				// Handle navigation directly to prevent double-processing
-				m.table.MoveDown(1)
+				// Check if at bottom of current page
+				if m.table.Cursor() >= len(m.table.Rows())-1 {
+					// At bottom of page, try to go to next page
+					if m.paginator.Page < m.paginator.TotalPages-1 {
+						m.paginator.NextPage()
+						m.updateTableData()
+						m.table.GotoTop() // Start at top of next page
+					}
+				} else {
+					m.table.MoveDown(1)
+				}
 				return m, nil
 			case "k", "up":
 				// Handle navigation directly to prevent double-processing
-				m.table.MoveUp(1)
+				// Check if at top of current page
+				if m.table.Cursor() <= 0 {
+					// At top of page, try to go to previous page
+					if m.paginator.Page > 0 {
+						m.paginator.PrevPage()
+						m.updateTableData()
+						m.table.GotoBottom() // Start at bottom of previous page
+					}
+				} else {
+					m.table.MoveUp(1)
+				}
 				return m, nil
 			case "J", "shift+down":
 				// Jump to bottom of current page
