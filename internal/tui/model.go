@@ -51,6 +51,7 @@ type Model struct {
 	selectedSuggestion int
 	navigationHistory  *NavigationHistory
 	logView            *LogViewState
+	sysStats           *SystemStats
 	ready              bool
 	width              int
 	height             int
@@ -87,6 +88,12 @@ type commandSuccessMsg struct {
 }
 
 type clearCommandSuccessMsg struct{}
+
+type sysStatsMsg struct {
+	stats *SystemStats
+}
+
+type sysStatsTickMsg time.Time
 
 // New creates a new TUI model with the provided configuration and Kubernetes client.
 // The client may be nil or disconnected - the TUI will handle this gracefully and
@@ -176,11 +183,20 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) Mod
 // Init initializes the TUI model and returns the initial command to run.
 // It attempts to load pods if the client is connected.
 func (m Model) Init() tea.Cmd {
+	var cmds []tea.Cmd
+
 	// Only try to load resources if connected
 	if m.isConnected() {
-		return tea.Batch(
-			m.loadResourcesCmd(k8s.ResourcePods),
-		)
+		cmds = append(cmds, m.loadResourcesCmd(k8s.ResourcePods))
+	}
+
+	// Start system stats monitoring if enabled
+	if m.config.ResourceMonitor {
+		cmds = append(cmds, m.tickSysStats())
+	}
+
+	if len(cmds) > 0 {
+		return tea.Batch(cmds...)
 	}
 	return nil
 }
@@ -333,6 +349,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case launchPluginMsg:
 		m.pluginToLaunch = msg.plugin
 		return m, tea.Quit
+
+	case sysStatsTickMsg:
+		// Trigger system stats collection
+		return m, m.fetchSysStats()
+
+	case sysStatsMsg:
+		// Update system stats and schedule next update
+		m.sysStats = msg.stats
+		return m, m.tickSysStats()
 
 	case logsCopiedMsg:
 		if msg.success {
@@ -747,5 +772,25 @@ func (m *Model) restoreFromMemento(memento *ModelMemento) {
 		m.table.SetCursor(maxCursor)
 	} else {
 		m.table.SetCursor(memento.tableCursor)
+	}
+}
+
+// tickSysStats schedules a system stats update after a delay
+func (m Model) tickSysStats() tea.Cmd {
+	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+		return sysStatsTickMsg(t)
+	})
+}
+
+// fetchSysStats fetches system statistics in the background
+func (m Model) fetchSysStats() tea.Cmd {
+	return func() tea.Msg {
+		stats, err := GetSystemStats()
+		if err != nil {
+			// Log error but don't fail - just continue without stats
+			slog.Error("failed to get system stats", "error", err)
+			return sysStatsMsg{stats: nil}
+		}
+		return sysStatsMsg{stats: stats}
 	}
 }

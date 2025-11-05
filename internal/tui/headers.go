@@ -143,8 +143,17 @@ func (m Model) renderFullHeader(b *strings.Builder) {
 		infoContent.WriteString(labelStyle.Render("K10s Ver: ") + valueStyle.Render(Version) + "\n")
 		infoContent.WriteString(labelStyle.Render("K8s Ver: ") + valueStyle.Render(m.clusterInfo.K8sVersion) + "\n")
 	}
-	infoContent.WriteString(labelStyle.Render("CPU: ") + errorStyle.Render("n/a") + "\n")
-	infoContent.WriteString(labelStyle.Render("MEM: ") + errorStyle.Render("n/a"))
+
+	// Display CPU/Memory stats if monitoring is enabled and stats are available
+	if m.config.ResourceMonitor {
+		if m.sysStats != nil {
+			infoContent.WriteString(labelStyle.Render("CPU: ") + valueStyle.Render(m.sysStats.FormatCPU()) + "\n")
+			infoContent.WriteString(labelStyle.Render("MEM: ") + valueStyle.Render(m.sysStats.FormatMemory()))
+		} else {
+			infoContent.WriteString(labelStyle.Render("CPU: ") + errorStyle.Render("n/a") + "\n")
+			infoContent.WriteString(labelStyle.Render("MEM: ") + errorStyle.Render("n/a"))
+		}
+	}
 
 	infoBlock := statusIndicator + " " + infoContent.String()
 	helpBlock := m.help.View(m)
