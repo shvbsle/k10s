@@ -77,9 +77,10 @@ type errMsg struct{ err error }
 func (e errMsg) Error() string { return e.err.Error() }
 
 type resourcesLoadedMsg struct {
-	resources []k8s.OrderedResourceFields
-	resource  k8s.ResourceType
-	namespace string // The namespace these resources were loaded from
+	resources   []k8s.OrderedResourceFields
+	gvr         schema.GroupVersionResource
+	namespace   string
+	listOptions metav1.ListOptions
 }
 
 type logsLoadedMsg struct {
@@ -280,14 +281,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resourcesLoadedMsg:
 		m.resources = msg.resources
 		m.logLines = nil // Clear log lines when loading resources
-		m.currentGVR.Resource = msg.resource
+
+		m.currentGVR = msg.gvr
 		m.currentNamespace = msg.namespace
+		m.listOptions = msg.listOptions
 
 		// Update key bindings for new resource type
 		m.updateKeysForResourceType()
 
 		m.updateColumns(m.viewWidth)
 		m.updateTableData()
+		m.table.SetCursor(0)
 
 		return m, nil
 
@@ -308,6 +312,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.updateTableData()
+		m.table.SetCursor(0)
 
 		if m.logView.Autoscroll {
 			m.table.GotoBottom()
@@ -386,7 +391,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// any suggestions because it represents a full command.
 				args := cli.ParseArgs(m.commandInput.Value())
 				if option, ok := lo.First(m.commandSuggester.Suggestions(args.AsList()...)); ok {
-					newCommand := strings.Join(args.ReplaceLast(option).AsList(), " ")
+					// adding the extra space after the autocorrect help with
+					// repeatetive autosuggestions.
+					newCommand := strings.Join(args.ReplaceLast(option).AsList(), " ") + " "
 					m.commandInput.SetValue(newCommand)
 					m.commandInput.SetCursor(len(newCommand))
 				}
@@ -459,7 +466,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				memento := m.saveToMemento(selectedName, selectedNamespace)
 				m.navigationHistory.Push(memento)
 
-				return m, m.CommandWithPreflights(m.drillDown(selectedResource), m.requireConnection)
+				return m, m.commandWithPreflights(m.drillDown(selectedResource), m.requireConnection)
 			case "esc", "escape":
 				memento := m.navigationHistory.Pop()
 				if memento != nil {
@@ -734,14 +741,17 @@ func (m *Model) renderBreadcrumb(b *strings.Builder) {
 func (m *Model) saveToMemento(selectedResourceName, selectedNamespace string) *ModelMemento {
 	return &ModelMemento{
 		resources:        m.resources,
-		resourceType:     m.currentGVR.Resource,
+		currentGVR:       m.currentGVR,
 		currentNamespace: m.currentNamespace,
-		tableCursor:      m.table.Cursor(),
-		paginatorPage:    m.paginator.Page,
-		err:              m.err,
-		logView:          m.logView,
-		resourceName:     selectedResourceName,
-		namespace:        selectedNamespace,
+		listOptions:      m.listOptions,
+
+		tableCursor:   m.table.Cursor(),
+		paginatorPage: m.paginator.Page,
+		err:           m.err,
+		logView:       m.logView,
+
+		resourceName: selectedResourceName,
+		namespace:    selectedNamespace,
 	}
 }
 
@@ -752,8 +762,9 @@ func (m *Model) restoreFromMemento(memento *ModelMemento) {
 	}
 
 	m.resources = memento.resources
-	m.currentGVR.Resource = memento.resourceType
+	m.currentGVR = memento.currentGVR
 	m.currentNamespace = memento.currentNamespace
+	m.listOptions = memento.listOptions
 	m.err = memento.err
 	m.logView = memento.logView
 
