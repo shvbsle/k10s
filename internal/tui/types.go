@@ -32,19 +32,12 @@ type DisplayRow interface {
 
 // ResourceRow wraps a Kubernetes resource for display.
 type ResourceRow struct {
-	Resource k8s.Resource
+	Resource k8s.OrderedResourceFields
 }
 
 // ToTableRow converts a Kubernetes resource into a table row.
 func (r ResourceRow) ToTableRow(_ bool) table.Row {
-	return table.Row{
-		r.Resource.Name,
-		r.Resource.Namespace,
-		r.Resource.Node,
-		r.Resource.Status,
-		r.Resource.Age,
-		r.Resource.Extra,
-	}
+	return table.Row(r.Resource)
 }
 
 // LogLine represents a single line of container logs with metadata.

@@ -1,14 +1,19 @@
 package tui
 
 import (
+	"slices"
+
 	"github.com/shvbsle/k10s/internal/k8s"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // ModelMemento captures Model state for drill-down navigation.
 type ModelMemento struct {
-	resources        []k8s.Resource
-	resourceType     k8s.ResourceType
+	resources        []k8s.OrderedResourceFields
+	currentGVR       schema.GroupVersionResource
 	currentNamespace string
+	listOptions      metav1.ListOptions
 	tableCursor      int
 	paginatorPage    int
 	err              error
@@ -69,7 +74,7 @@ func (h *NavigationHistory) GetBreadcrumb() []struct {
 	}, len(h.mementos))
 
 	for i, memento := range h.mementos {
-		breadcrumb[i].ResourceType = memento.resourceType
+		breadcrumb[i].ResourceType = memento.currentGVR.Resource
 		breadcrumb[i].ResourceName = memento.resourceName
 	}
 
@@ -77,11 +82,11 @@ func (h *NavigationHistory) GetBreadcrumb() []struct {
 }
 
 // FindMementoByResourceType searches backwards for a memento with the given type.
-func (h *NavigationHistory) FindMementoByResourceType(resType k8s.ResourceType) (*ModelMemento, int) {
-	for i := len(h.mementos) - 1; i >= 0; i-- {
-		if h.mementos[i].resourceType == resType {
-			return h.mementos[i], i
+func (h *NavigationHistory) FindMementoByResourceType(resource k8s.ResourceType) (*ModelMemento, bool) {
+	for _, memento := range slices.Backward(h.mementos) {
+		if memento.currentGVR.Resource == resource {
+			return memento, true
 		}
 	}
-	return nil, -1
+	return nil, false
 }

@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	// DefaultPageSize is the default number of items to display per page.
-	DefaultPageSize = 20
+	// DefaultMaxPageSize is the default number of items to display per page.
+	DefaultMaxPageSize = 20
 	// DefaultLogTailLines is the default number of log lines to fetch.
 	DefaultLogTailLines = 100
 	// DefaultLogo is the default ASCII art logo displayed in the TUI header.
@@ -35,17 +35,18 @@ const (
 // Config holds the user configuration for k10s, including display preferences
 // like page size and the ASCII logo to show in the header.
 type Config struct {
-	PageSize        int
+	MaxPageSize     int
 	LogTailLines    int
 	Logo            string
 	PaginationStyle PaginationStyle
+	LogFilePath     string // Custom log file path (empty means use XDG default)
 }
 
 // Load reads the k10s configuration from ~/.k10s.conf. If the file doesn't
 // exist or cannot be read, it returns a Config with default values.
 func Load() (*Config, error) {
 	cfg := &Config{
-		PageSize:        DefaultPageSize,
+		MaxPageSize:     DefaultMaxPageSize,
 		LogTailLines:    DefaultLogTailLines,
 		Logo:            DefaultLogo,
 		PaginationStyle: PaginationStyleBubbles,
@@ -104,9 +105,10 @@ func Load() (*Config, error) {
 		value := strings.TrimSpace(parts[1])
 
 		switch key {
+		// TODO: rename to max_page_size
 		case "page_size":
 			if size, err := strconv.Atoi(value); err == nil && size > 0 {
-				cfg.PageSize = size
+				cfg.MaxPageSize = size
 			}
 		case "log_tail_lines":
 			if lines, err := strconv.Atoi(value); err == nil && lines > 0 {
@@ -119,6 +121,9 @@ func Load() (*Config, error) {
 			case "verbose":
 				cfg.PaginationStyle = PaginationStyleVerbose
 			}
+		case "k10s_log_path":
+			// Accept the value as-is, will be validated in setupLogging
+			cfg.LogFilePath = value
 		}
 	}
 
@@ -151,6 +156,14 @@ log_tail_lines=100
 # Default: bubbles
 pagination_style=bubbles
 
+# Log file path for k10s internal logs
+# If commented out or empty, logs will be stored in the default XDG state directory:
+#   - macOS: ~/Library/Application Support/k10s/k10s.log
+#   - Linux: ~/.local/state/k10s/k10s.log
+# You can override this with a custom path (supports ~ for home directory)
+# Example: k10s_log_path=/var/log/k10s.log
+# k10s_log_path=
+
 # ASCII logo (between logo_start and logo_end)
 logo_start
  /\_/\
@@ -163,5 +176,19 @@ logo_end
 }
 
 func (c *Config) String() string {
-	return fmt.Sprintf("PageSize: %d\nLogo:\n%s", c.PageSize, c.Logo)
+	return fmt.Sprintf("PageSize: %d\nLogo:\n%s", c.MaxPageSize, c.Logo)
+}
+
+func GetPluginDataDir(pluginName string) (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("could not get user home directory: %w", err)
+	}
+
+	pluginDir := filepath.Join(homeDir, ".k10s", "plugins", pluginName)
+	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+		return "", fmt.Errorf("could not create plugin data directory: %w", err)
+	}
+
+	return pluginDir, nil
 }

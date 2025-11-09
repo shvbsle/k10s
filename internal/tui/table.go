@@ -10,10 +10,13 @@ import (
 	"github.com/mattn/go-runewidth"
 	"github.com/shvbsle/k10s/internal/config"
 	"github.com/shvbsle/k10s/internal/k8s"
+	"github.com/shvbsle/k10s/internal/tui/resources"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // wrapTextAtWordBoundary wraps text at word boundaries when possible.
 // Falls back to truncation for words longer than maxWidth.
+// Preserves original whitespace formatting.
 func wrapTextAtWordBoundary(text string, maxWidth int) []string {
 	if maxWidth <= 0 || runewidth.StringWidth(text) <= maxWidth {
 		return []string{text}
@@ -22,41 +25,60 @@ func wrapTextAtWordBoundary(text string, maxWidth int) []string {
 	var lines []string
 	currentLine := ""
 	currentWidth := 0
+	i := 0
+	textRunes := []rune(text)
 
-	words := strings.Fields(text)
-	for _, word := range words {
-		wordWidth := runewidth.StringWidth(word)
-		spaceWidth := 1
-
-		// Check if word fits on current line
-		neededWidth := wordWidth
-		if currentWidth > 0 {
-			neededWidth += spaceWidth
+	for i < len(textRunes) {
+		// Skip leading whitespace for new lines (except first line)
+		if currentWidth == 0 && len(lines) > 0 {
+			for i < len(textRunes) && textRunes[i] == ' ' {
+				i++
+			}
+			if i >= len(textRunes) {
+				break
+			}
 		}
 
-		if currentWidth+neededWidth <= maxWidth {
-			// Word fits
-			if currentWidth > 0 {
-				currentLine += " "
-				currentWidth += spaceWidth
-			}
-			currentLine += word
-			currentWidth += wordWidth
-		} else {
-			// Word doesn't fit
-			if currentLine != "" {
-				lines = append(lines, currentLine)
-			}
+		// Collect whitespace before the word (preserve spacing)
+		whitespaceStart := i
+		for i < len(textRunes) && textRunes[i] == ' ' {
+			i++
+		}
+		whitespace := string(textRunes[whitespaceStart:i])
+		whitespaceWidth := runewidth.StringWidth(whitespace)
 
-			// Start new line with this word
-			if wordWidth <= maxWidth {
-				currentLine = word
-				currentWidth = wordWidth
-			} else {
-				// Word too long - truncate with ellipsis
-				currentLine = runewidth.Truncate(word, maxWidth, "…")
-				currentWidth = maxWidth
-			}
+		// Collect the word
+		wordStart := i
+		for i < len(textRunes) && textRunes[i] != ' ' {
+			i++
+		}
+		word := string(textRunes[wordStart:i])
+		wordWidth := runewidth.StringWidth(word)
+
+		// Check if whitespace + word fits on current line
+		neededWidth := whitespaceWidth + wordWidth
+		if currentWidth > 0 && currentWidth+neededWidth > maxWidth {
+			// Doesn't fit - save current line and start new one
+			lines = append(lines, currentLine)
+			currentLine = ""
+			currentWidth = 0
+			whitespace = "" // Don't carry over leading whitespace to new line
+			whitespaceWidth = 0
+		}
+
+		// Add whitespace and word to current line
+		if wordWidth > 0 {
+			currentLine += whitespace + word
+			currentWidth += whitespaceWidth + wordWidth
+		}
+
+		// Handle words longer than maxWidth
+		if currentWidth > maxWidth && currentLine == whitespace+word {
+			// This single word is too long, truncate it
+			currentLine = runewidth.Truncate(currentLine, maxWidth, "…")
+			lines = append(lines, currentLine)
+			currentLine = ""
+			currentWidth = 0
 		}
 	}
 
@@ -64,12 +86,16 @@ func wrapTextAtWordBoundary(text string, maxWidth int) []string {
 		lines = append(lines, currentLine)
 	}
 
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+
 	return lines
 }
 
 // updateTableData updates the table rows based on the current page and data.
 func (m *Model) updateTableData() {
-	if m.resourceType == k8s.ResourceLogs && m.logLines != nil {
+	if m.currentGVR.Resource == k8s.ResourceLogs && m.logLines != nil {
 		m.updateTableDataForLogs()
 	} else {
 		m.updateTableDataForResources()
@@ -87,24 +113,26 @@ func (m *Model) updateTableDataForResources() {
 		displayResources = m.filteredResources
 	}
 
-	start := m.paginator.Page * m.paginator.PerPage
-	end := start + m.paginator.PerPage
-	if end > len(displayResources) {
-		end = len(displayResources)
+	// Bounds checking to prevent slice out of range
+	if len(displayResources) == 0 {
+		m.table.SetRows([]table.Row{})
+		m.paginator.SetTotalPages(0)
+		return
 	}
+
+	start := m.paginator.Page * m.paginator.PerPage
+	if start >= len(displayResources) {
+		start = 0
+		m.paginator.Page = 0
+	}
+
+	end := min(start+m.paginator.PerPage, len(displayResources))
 
 	pageResources := displayResources[start:end]
 	rows := make([]table.Row, len(pageResources))
 
 	for i, res := range pageResources {
-		rows[i] = table.Row{
-			res.Name,
-			res.Namespace,
-			res.Node,
-			res.Status,
-			res.Age,
-			res.Extra,
-		}
+		rows[i] = table.Row(res)
 	}
 
 	m.table.SetRows(rows)
@@ -122,11 +150,20 @@ func (m *Model) updateTableDataForLogs() {
 		displayLogLines = m.filteredLogLines
 	}
 
-	start := m.paginator.Page * m.paginator.PerPage
-	end := start + m.paginator.PerPage
-	if end > len(displayLogLines) {
-		end = len(displayLogLines)
+	// Bounds checking to prevent slice out of range
+	if len(displayLogLines) == 0 {
+		m.table.SetRows([]table.Row{})
+		m.paginator.SetTotalPages(0)
+		return
 	}
+
+	start := m.paginator.Page * m.paginator.PerPage
+	if start >= len(displayLogLines) {
+		start = 0
+		m.paginator.Page = 0
+	}
+
+	end := min(start+m.paginator.PerPage, len(displayLogLines))
 
 	pageLogLines := displayLogLines[start:end]
 	var rows []table.Row
@@ -142,8 +179,9 @@ func (m *Model) updateTableDataForLogs() {
 
 // formatLogLine formats a single log line for table display with optional wrapping.
 func (m *Model) formatLogLine(logLine k8s.LogLine) []table.Row {
-	// Format line number with content
-	logContent := fmt.Sprintf("%4d: %s", logLine.LineNum, logLine.Content)
+	// Format line number prefix (e.g., "   1: ")
+	lineNumPrefix := fmt.Sprintf("%4d: ", logLine.LineNum)
+	lineNumWidth := runewidth.StringWidth(lineNumPrefix)
 
 	var timestamp string
 	var timestampWidth int
@@ -161,48 +199,44 @@ func (m *Model) formatLogLine(logLine k8s.LogLine) []table.Row {
 		columns := m.table.Columns()
 		logWidth := columns[0].Width
 
-		// Calculate available width for content
-		availableWidth := logWidth - timestampWidth
-		if availableWidth < 10 {
-			availableWidth = 10
-		}
+		// Calculate available width for actual log content
+		// Account for timestamp, line number prefix, and continuation marker
+		prefixWidth := timestampWidth + lineNumWidth
+		availableWidth := max(logWidth-prefixWidth, 10)
 
-		wrappedLines := wrapTextAtWordBoundary(logContent, availableWidth)
+		// Wrap only the log content (without line number prefix)
+		wrappedLines := wrapTextAtWordBoundary(logLine.Content, availableWidth)
 
 		for j, line := range wrappedLines {
 			var displayLine string
 			if j == 0 {
-				displayLine = timestamp + line
+				// First line: timestamp + line number + content
+				displayLine = timestamp + lineNumPrefix + line
 			} else {
-				indent := strings.Repeat(" ", timestampWidth)
-				displayLine = indent + "↳ " + line
+				// Continuation lines: indent to align with first line's content
+				indent := strings.Repeat(" ", prefixWidth)
+				displayLine = indent + line
 			}
-			rows = append(rows, table.Row{
-				displayLine,
-				"", "", "", "", "",
-			})
+			rows = append(rows, table.Row{displayLine})
 		}
 	} else {
-		displayLine := timestamp + logContent
-		rows = append(rows, table.Row{
-			displayLine,
-			"", "", "", "", "",
-		})
+		displayLine := timestamp + lineNumPrefix + logLine.Content
+		rows = append(rows, table.Row{displayLine})
 	}
 
 	return rows
 }
 
 // renderTableWithHeader renders the table with a custom header border containing the resource type.
-func (m Model) renderTableWithHeader(b *strings.Builder) {
+func (m *Model) renderTableWithHeader(b *strings.Builder) {
 	nsDisplay := m.currentNamespace
-	if nsDisplay == "" {
+	if nsDisplay == metav1.NamespaceAll {
 		nsDisplay = "all"
 	}
 
 	// Show filtered count if search is active
 	count := len(m.resources)
-	if m.resourceType == k8s.ResourceLogs {
+	if m.currentGVR.Resource == k8s.ResourceLogs {
 		count = len(m.logLines)
 		if m.activeSearchQuery != "" || m.searchQuery != "" {
 			count = len(m.filteredLogLines)
@@ -213,7 +247,7 @@ func (m Model) renderTableWithHeader(b *strings.Builder) {
 		}
 	}
 
-	headerText := fmt.Sprintf(" %s[%s](%d) ", m.resourceType, nsDisplay, count)
+	headerText := fmt.Sprintf(" %s [%s] (%d) ", k8s.FormatGVR(m.currentGVR), nsDisplay, count)
 	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 
 	borderColor := lipgloss.Color("240")
@@ -258,7 +292,7 @@ func (m Model) renderTableWithHeader(b *strings.Builder) {
 	b.WriteString("\n")
 
 	// Render toggle status for logs view
-	if m.resourceType == k8s.ResourceLogs {
+	if m.currentGVR.Resource == k8s.ResourceLogs {
 		onStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
 		offStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 		labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
@@ -358,7 +392,7 @@ func (m Model) renderTableWithHeader(b *strings.Builder) {
 }
 
 // buildTopBorderWithTitle creates a top border with a centered title.
-func (m Model) buildTopBorderWithTitle(title string, width int, borderColor lipgloss.Color, titleStyle lipgloss.Style) string {
+func (m *Model) buildTopBorderWithTitle(title string, width int, borderColor lipgloss.Color, titleStyle lipgloss.Style) string {
 	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
 
 	// Calculate centering - leftDashes + titleLen + rightDashes = width
@@ -384,62 +418,33 @@ func (m Model) buildTopBorderWithTitle(title string, width int, borderColor lipg
 	return result.String()
 }
 
-// getColumnTitles returns the appropriate column titles based on the resource type.
-func getColumnTitles(resType k8s.ResourceType) []string {
-	switch resType {
-	case k8s.ResourcePods:
-		return []string{"Name", "Namespace", "Node", "Status", "Age", "Pod IP"}
-	case k8s.ResourceNodes:
-		return []string{"Name", "", "", "Status", "Age", "Node IP"}
-	case k8s.ResourceNamespaces:
-		return []string{"Name", "", "", "Status", "Age", ""}
-	case k8s.ResourceServices:
-		return []string{"Name", "Namespace", "", "Type", "Age", "Cluster-IP/Ports"}
-	case k8s.ResourceContainers:
-		return []string{"Name", "Type", "Image", "Status", "Restarts", "Ready"}
-	case k8s.ResourceLogs:
-		return []string{"", "", "", "", "", ""}
-	default:
-		return []string{"Name", "Namespace", "Node", "Status", "Age", "IP"}
-	}
-}
-
 // updateColumns updates the table columns based on the current width and resource type.
-func (m *Model) updateColumns(totalWidth int) {
-	titles := getColumnTitles(m.resourceType)
+func (m *Model) updateColumns(width int) {
+	// Rough calc for border renders:
+	// Total overhead: 2 (borders) + 5 (column spacing) = 7
+	totalWidth := max(width-10, 90)
+	columns := resources.GetColumns(totalWidth, m.currentGVR.Resource)
 
-	if m.resourceType == k8s.ResourceLogs {
-		logWidth := totalWidth
-		m.table.SetColumns([]table.Column{
-			{Title: titles[0], Width: logWidth},
-			{Title: titles[1], Width: 0},
-			{Title: titles[2], Width: 0},
-			{Title: titles[3], Width: 0},
-			{Title: titles[4], Width: 0},
-			{Title: titles[5], Width: 0},
-		})
-		return
-	}
+	// we have to clear rows if we're going to update columns to avoid breaking
+	// the model with inconsistent column count.
+	// SAFETY: this function should always be called before updating rows.
+	m.table.SetRows([]table.Row{})
 
-	nameWidth := int(float64(totalWidth) * 0.30)
-	nsWidth := int(float64(totalWidth) * 0.13)
-	nodeWidth := int(float64(totalWidth) * 0.18)
-	statusWidth := int(float64(totalWidth) * 0.12)
-	ageWidth := int(float64(totalWidth) * 0.08)
-	ipWidth := totalWidth - nameWidth - nsWidth - nodeWidth - statusWidth - ageWidth
-
-	m.table.SetColumns([]table.Column{
-		{Title: titles[0], Width: nameWidth},
-		{Title: titles[1], Width: nsWidth},
-		{Title: titles[2], Width: nodeWidth},
-		{Title: titles[3], Width: statusWidth},
-		{Title: titles[4], Width: ageWidth},
-		{Title: titles[5], Width: ipWidth},
-	})
+	m.table.SetColumns(columns)
 }
 
 // renderPagination renders the pagination display based on configured style.
-func (m Model) renderPagination(b *strings.Builder) {
+// Automatically switches to verbose style for logs with more than 5 pages.
+func (m *Model) renderPagination(b *strings.Builder) {
+	// For logs with more than 5 pages, always use verbose style
+	if m.currentGVR.Resource == k8s.ResourceLogs && m.paginator.TotalPages > 5 {
+		paginatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+		pageInfo := fmt.Sprintf("Page %d/%d", m.paginator.Page+1, m.paginator.TotalPages)
+		b.WriteString(paginatorStyle.Render(pageInfo))
+		return
+	}
+
+	// Otherwise use configured style
 	switch m.config.PaginationStyle {
 	case config.PaginationStyleVerbose:
 		// Text-based pagination: "Page 1/10"

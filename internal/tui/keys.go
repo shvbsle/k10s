@@ -22,20 +22,7 @@ type keyMap struct {
 	Autoscroll key.Binding
 	ToggleTime key.Binding
 	WrapText   key.Binding
-}
-
-// ShortHelp returns a short help text for the key bindings
-func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.Back, k.Command, k.Search, k.Quit}
-}
-
-// FullHelp returns the full help text for all key bindings
-func (k keyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{
-		{k.Up, k.Down, k.GotoTop, k.GotoBottom},
-		{k.Left, k.Right, k.AllNS, k.DefaultNS},
-		{k.Enter, k.Back, k.Command, k.Search, k.Quit},
-	}
+	CopyLogs   key.Binding
 }
 
 // newKeyMap creates a new keyMap with all bindings configured
@@ -90,8 +77,8 @@ func newKeyMap() keyMap {
 			key.WithHelp("/", "search"),
 		),
 		Quit: key.NewBinding(
-			key.WithKeys("q", "ctrl+c"),
-			key.WithHelp("q", "quit"),
+			key.WithKeys("ctrl+c"),
+			key.WithHelp(":quit", "quit"),
 		),
 		Fullscreen: key.NewBinding(
 			key.WithKeys("f"),
@@ -108,6 +95,10 @@ func newKeyMap() keyMap {
 		WrapText: key.NewBinding(
 			key.WithKeys("w"),
 			key.WithHelp("w", "wrap"),
+		),
+		CopyLogs: key.NewBinding(
+			key.WithKeys(":cplogs"),
+			key.WithHelp(":cplogs", "copy logs [all] [path]"),
 		),
 	}
 }

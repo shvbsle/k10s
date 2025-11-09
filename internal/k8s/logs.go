@@ -5,9 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 
+	"github.com/shvbsle/k10s/internal/log"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -43,7 +43,7 @@ func (c *Client) GetContainerLogs(podName, namespace, containerName string, tail
 	}
 	defer func() {
 		if closeErr := podLogs.Close(); closeErr != nil {
-			log.Printf("K8s: Error closing log stream: %v", closeErr)
+			log.G().Error("error closing log stream", "error", closeErr)
 		}
 	}()
 

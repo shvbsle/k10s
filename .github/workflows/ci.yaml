@@ -23,6 +23,6 @@ jobs:
           version: latest
           args: --timeout=5m
       - name: Test
-        run: go test ./... -cover
+        run: go test -race ./... -cover
       - name: Build
         run: go build -v ./cmd/k10s
