@@ -21,6 +21,8 @@ const (
 	ResourceContainers ResourceType = "containers"
 	// ResourceLogs represents logs for a specific container.
 	ResourceLogs ResourceType = "logs"
+	// ResourceAPIResources represents the list of available API resources.
+	ResourceAPIResources ResourceType = "api-resources"
 )
 
 // OrderedResourceFields represents a Kubernetes resource with common fields suitable for

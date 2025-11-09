@@ -190,6 +190,9 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 					"resource": lo.Map(cli.GetServerGVRs(client.Discovery()), func(gvr schema.GroupVersionResource, _ int) string {
 						return k8s.FormatGVR(gvr)
 					}),
+					"rs": lo.Map(cli.GetServerGVRs(client.Discovery()), func(gvr schema.GroupVersionResource, _ int) string {
+						return k8s.FormatGVR(gvr)
+					}),
 				},
 				// plugins
 				lo.SliceToMap(registry.CommandSuggestions(), func(suggestion string) (string, any) {
