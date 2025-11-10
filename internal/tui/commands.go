@@ -156,10 +156,8 @@ func (m *Model) listAvailableResources() tea.Cmd {
 		})
 
 		return resourcesLoadedMsg{
-			gvr:         schema.GroupVersionResource{Resource: "api-resources"},
-			namespace:   "",
-			listOptions: metav1.ListOptions{},
-			resources:   rows,
+			gvr:       schema.GroupVersionResource{Resource: "api-resources"},
+			resources: rows,
 		}
 	}
 }
