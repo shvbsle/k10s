@@ -162,6 +162,11 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 	h.Styles.FullDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	h.Styles.FullSeparator = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 
+	// Fetch available resources once for both "resource" and "rs" commands
+	availableResources := lo.Map(cli.GetServerGVRs(client.Discovery()), func(gvr schema.GroupVersionResource, _ int) string {
+		return k8s.FormatGVR(gvr)
+	})
+
 	return &Model{
 		config:           cfg,
 		k8sClient:        client,
@@ -187,9 +192,8 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 				},
 				// kubernetes resources
 				map[string]any{
-					"resource": lo.Map(cli.GetServerGVRs(client.Discovery()), func(gvr schema.GroupVersionResource, _ int) string {
-						return k8s.FormatGVR(gvr)
-					}),
+					"resource": availableResources,
+					"rs":       availableResources,
 				},
 				// plugins
 				lo.SliceToMap(registry.CommandSuggestions(), func(suggestion string) (string, any) {

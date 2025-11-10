@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -48,9 +49,9 @@ func (m *Model) executeCommand(command string) tea.Cmd {
 		return tea.Quit
 	case "reconnect", "r":
 		return m.reconnectCmd()
-	case "resource":
+	case "resource", "rs":
 		if len(args) == 0 {
-			return m.showCommandError(fmt.Sprintf("not enough arguments for command `%s`", originalCommand))
+			return m.listAvailableResources()
 		}
 		return m.resourceCommand(args[0], lo.Drop(args, 1))
 	case "cplogs", "cp":
@@ -64,12 +65,39 @@ func (m *Model) executeCommand(command string) tea.Cmd {
 
 func (m *Model) resourceCommand(command string, args []string) tea.Cmd {
 	before, after, found := strings.Cut(command, "/")
+
+	// Parse the requested GVR
+	requestedGVR := schema.GroupVersionResource{}
 	if found {
-		m.currentGVR.Version = after
+		requestedGVR.Version = after
 	}
 	gr := schema.ParseGroupResource(before)
-	m.currentGVR.Resource = gr.Resource
-	m.currentGVR.Group = gr.Group
+	requestedGVR.Resource = gr.Resource
+	requestedGVR.Group = gr.Group
+
+	// Validate that the resource exists on the server
+	validGVRs := cli.GetServerGVRs(m.k8sClient.Discovery())
+	resourceExists := false
+	for _, validGVR := range validGVRs {
+		// Match on resource name and group (ignore version if not specified)
+		if validGVR.Resource == requestedGVR.Resource &&
+			validGVR.Group == requestedGVR.Group &&
+			(requestedGVR.Version == "" || validGVR.Version == requestedGVR.Version) {
+			// Use the server's preferred version if version wasn't specified
+			if requestedGVR.Version == "" {
+				requestedGVR.Version = validGVR.Version
+			}
+			resourceExists = true
+			break
+		}
+	}
+
+	if !resourceExists {
+		return m.showCommandError(fmt.Sprintf("resource '%s' not found on the server", command))
+	}
+
+	// Only update the current GVR after validation succeeds
+	m.currentGVR = requestedGVR
 
 	namespace := cli.ParseNamespace(args)
 
@@ -77,6 +105,61 @@ func (m *Model) resourceCommand(command string, args []string) tea.Cmd {
 		m.loadResourcesWithNamespace(m.currentGVR, namespace, metav1.ListOptions{}),
 		m.requireConnection,
 	)
+}
+
+// listAvailableResources displays all available Kubernetes resources in the cluster.
+func (m *Model) listAvailableResources() tea.Cmd {
+	return func() tea.Msg {
+		// Get all available resources from the server
+		validGVRs := cli.GetServerGVRs(m.k8sClient.Discovery())
+
+		// Create a map to deduplicate by resource name (showing preferred version)
+		resourceMap := make(map[string]schema.GroupVersionResource)
+		for _, gvr := range validGVRs {
+			key := gvr.Resource
+			if gvr.Group != "" {
+				key = gvr.Resource + "." + gvr.Group
+			}
+			// Only keep the first occurrence (preferred version)
+			if _, exists := resourceMap[key]; !exists {
+				resourceMap[key] = gvr
+			}
+		}
+
+		// Convert to sorted slice for display
+		resources := lo.Values(resourceMap)
+
+		// Sort alphabetically by resource name
+		sort.Slice(resources, func(i, j int) bool {
+			iKey := resources[i].Resource
+			if resources[i].Group != "" {
+				iKey = resources[i].Resource + "." + resources[i].Group
+			}
+			jKey := resources[j].Resource
+			if resources[j].Group != "" {
+				jKey = resources[j].Resource + "." + resources[j].Group
+			}
+			return iKey < jKey
+		})
+
+		// Create rows for table display
+		rows := lo.Map(resources, func(gvr schema.GroupVersionResource, _ int) k8s.OrderedResourceFields {
+			resourceName := gvr.Resource
+			if gvr.Group != "" {
+				resourceName = gvr.Resource + "." + gvr.Group
+			}
+			return k8s.OrderedResourceFields{
+				resourceName,
+				gvr.Version,
+				gvr.Group,
+			}
+		})
+
+		return resourcesLoadedMsg{
+			gvr:       schema.GroupVersionResource{Resource: "api-resources"},
+			resources: rows,
+		}
+	}
 }
 
 // showCommandError returns a command that sets the command error and clears it after 5 seconds.

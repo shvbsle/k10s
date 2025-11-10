@@ -189,5 +189,21 @@
         "weight": 1
       }
     ]
+  },
+  "api-resources": {
+    "fields": [
+      {
+        "name": "Name",
+        "weight": 0.5
+      },
+      {
+        "name": "Version",
+        "weight": 0.25
+      },
+      {
+        "name": "Group",
+        "weight": 0.25
+      }
+    ]
   }
 }
