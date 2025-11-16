@@ -33,18 +33,21 @@ type ClusterInfo struct {
 }
 
 // NewClient creates a new Kubernetes client by attempting to load the kubeconfig.
-// It does not fail if the cluster is unavailable - instead it returns a client
-// in a disconnected state that can be reconnected later.
+// It never returns nil - instead it returns a client in disconnected state that can
+// be reconnected later using Reconnect().
 func NewClient() (*Client, error) {
-	config, err := getKubeConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get kubeconfig: %w", err)
-	}
-
 	client := &Client{
-		config:      config,
 		isConnected: false,
 	}
+
+	config, err := getKubeConfig()
+	if err != nil {
+		// Return disconnected client instead of error
+		log.G().Warn("failed to get kubeconfig", "error", err)
+		return client, nil
+	}
+
+	client.config = config
 
 	// Try to connect but don't fail if cluster is unavailable
 	clientset, err := kubernetes.NewForConfig(config)
@@ -57,10 +60,16 @@ func NewClient() (*Client, error) {
 }
 
 func (c *Client) Discovery() discovery.DiscoveryInterface {
+	if c.clientset == nil {
+		return &disconnectedDiscovery{}
+	}
 	return c.clientset.Discovery()
 }
 
 func (c *Client) Dynamic() dynamic.Interface {
+	if c.clientset == nil {
+		return &disconnectedDynamic{}
+	}
 	return dynamic.New(c.clientset.Discovery().RESTClient())
 }
 

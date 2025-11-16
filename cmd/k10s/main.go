@@ -61,18 +61,17 @@ func main() {
 	logger.Info("k10s starting", "version", tui.Version)
 	logger.Info("configuration loaded", "max_page_size", cfg.MaxPageSize)
 
-	// Don't exit on failure, let TUI handle it
-	client, err := k8s.NewClient()
-	if err != nil {
-		logger.Warn("could not initialize Kubernetes client", "error", err)
-		logger.Info("starting k10s in disconnected mode")
-	} else if client != nil && client.IsConnected() {
+	// NewClient never returns nil, but may return a disconnected client
+	client, _ := k8s.NewClient()
+	if client.IsConnected() {
 		if info, err := client.GetClusterInfo(); err == nil {
 			logger.Info("connected to cluster", "cluster", info.Cluster, "context", info.Context)
 		} else {
 			logger.Warn("could not get cluster info", "error", err)
 			logger.Info("connected to Kubernetes API")
 		}
+	} else {
+		logger.Info("starting k10s in disconnected mode")
 	}
 
 	// Initialize plugin registry
@@ -80,7 +79,6 @@ func main() {
 	pluginRegistry.Register(kitten.New())
 	logger.Info("loaded plugins", "count", len(pluginRegistry.List()))
 
-	// Works even if client is nil or disconnected
 	logger.Info("starting TUI")
 
 	for {
