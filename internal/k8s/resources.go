@@ -23,6 +23,8 @@ const (
 	ResourceLogs ResourceType = "logs"
 	// ResourceAPIResources represents the list of available API resources.
 	ResourceAPIResources ResourceType = "api-resources"
+	// ResourceDescribe represents the YAML description of a resource.
+	ResourceDescribe ResourceType = "describe"
 )
 
 // OrderedResourceFields represents a Kubernetes resource with common fields suitable for

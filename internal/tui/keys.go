@@ -22,6 +22,8 @@ type keyMap struct {
 	ToggleTime key.Binding
 	WrapText   key.Binding
 	CopyLogs   key.Binding
+	// Resource actions
+	Describe key.Binding
 }
 
 // newKeyMap creates a new keyMap with all bindings configured
@@ -94,6 +96,10 @@ func newKeyMap() keyMap {
 		CopyLogs: key.NewBinding(
 			key.WithKeys(":cplogs"),
 			key.WithHelp(":cplogs", "copy logs [all] [path]"),
+		),
+		Describe: key.NewBinding(
+			key.WithKeys("D", "shift+d"),
+			key.WithHelp("D", "describe"),
 		),
 	}
 }

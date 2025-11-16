@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/yaml"
 )
 
 type launchPluginMsg struct {
@@ -359,4 +360,60 @@ func (m *Model) commandWithPreflights(cmd tea.Cmd, preflights ...func() error) t
 		}
 	}
 	return cmd
+}
+
+// describeCurrentResource creates a command that fetches and describes the currently selected resource in YAML format.
+func (m *Model) describeCurrentResource() tea.Cmd {
+	return func() tea.Msg {
+		if len(m.resources) == 0 {
+			return commandErrMsg{message: "no resource selected"}
+		}
+
+		actualIdx := m.paginator.Page*m.paginator.PerPage + m.table.Cursor()
+		if actualIdx >= len(m.resources) {
+			return commandErrMsg{message: "invalid selection"}
+		}
+
+		selectedResource := m.resources[actualIdx]
+
+		// Extract name and namespace from the selected row
+		var selectedName, selectedNamespace string
+		if nameIndex, ok := k8s.NameColumn(m.table.Columns()); ok {
+			selectedName = selectedResource[nameIndex]
+		}
+		if namespaceIndex, ok := k8s.NamespaceColumn(m.table.Columns()); ok {
+			selectedNamespace = selectedResource[namespaceIndex]
+		}
+
+		// Use the current namespace if no namespace column exists (cluster-scoped resources)
+		if selectedNamespace == "" {
+			selectedNamespace = m.currentNamespace
+		}
+
+		log.G().Info("describing resource", "gvr", m.currentGVR, "name", selectedName, "namespace", selectedNamespace)
+
+		// Get the full resource object from the cluster
+		resource, err := m.k8sClient.Dynamic().
+			Resource(m.currentGVR).
+			Namespace(selectedNamespace).
+			Get(context.Background(), selectedName, metav1.GetOptions{})
+		if err != nil {
+			log.G().Error("failed to get resource for describe", "error", err)
+			return errMsg{fmt.Errorf("failed to get resource: %w", err)}
+		}
+
+		// Convert the unstructured object to YAML
+		yamlBytes, err := yaml.Marshal(resource.Object)
+		if err != nil {
+			log.G().Error("failed to marshal resource to YAML", "error", err)
+			return errMsg{fmt.Errorf("failed to marshal YAML: %w", err)}
+		}
+
+		return resourceDescribedMsg{
+			yamlContent:  string(yamlBytes),
+			resourceName: selectedName,
+			namespace:    selectedNamespace,
+			gvr:          m.currentGVR,
+		}
+	}
 }

@@ -97,6 +97,8 @@ func wrapTextAtWordBoundary(text string, maxWidth int) []string {
 func (m *Model) updateTableData() {
 	if m.currentGVR.Resource == k8s.ResourceLogs && m.logLines != nil {
 		m.updateTableDataForLogs()
+	} else if m.currentGVR.Resource == k8s.ResourceDescribe && m.describeContent != "" {
+		m.updateTableDataForDescribe()
 	} else {
 		m.updateTableDataForResources()
 	}
@@ -157,6 +159,38 @@ func (m *Model) updateTableDataForLogs() {
 
 	m.table.SetRows(rows)
 	m.paginator.SetTotalPages(len(m.logLines))
+}
+
+// updateTableDataForDescribe updates table with YAML content from describe.
+func (m *Model) updateTableDataForDescribe() {
+	// Bounds checking to prevent slice out of range
+	if m.describeContent == "" {
+		m.table.SetRows([]table.Row{})
+		m.paginator.SetTotalPages(0)
+		return
+	}
+
+	// Split YAML content into lines
+	lines := strings.Split(m.describeContent, "\n")
+
+	// Calculate pagination
+	start := m.paginator.Page * m.paginator.PerPage
+	if start >= len(lines) {
+		start = 0
+		m.paginator.Page = 0
+	}
+
+	end := min(start+m.paginator.PerPage, len(lines))
+	pageLines := lines[start:end]
+
+	// Convert lines to table rows
+	rows := make([]table.Row, len(pageLines))
+	for i, line := range pageLines {
+		rows[i] = table.Row{line}
+	}
+
+	m.table.SetRows(rows)
+	m.paginator.SetTotalPages(len(lines))
 }
 
 // formatLogLine formats a single log line for table display with optional wrapping.
