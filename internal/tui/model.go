@@ -58,6 +58,7 @@ type Model struct {
 	listOptions       metav1.ListOptions
 	clusterInfo       *k8s.ClusterInfo
 	logLines          []k8s.LogLine
+	describeContent   string
 	currentNamespace  string
 	navigationHistory *NavigationHistory
 	logView           *LogViewState
@@ -99,6 +100,13 @@ type commandSuccessMsg struct {
 }
 
 type clearCommandSuccessMsg struct{}
+
+type resourceDescribedMsg struct {
+	yamlContent  string
+	resourceName string
+	namespace    string
+	gvr          schema.GroupVersionResource
+}
 
 // New creates a new TUI model with the provided configuration and Kubernetes client.
 // The client may be nil or disconnected - the TUI will handle this gracefully and
@@ -324,6 +332,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 
+	case resourceDescribedMsg:
+		m.describeContent = msg.yamlContent
+		m.resources = nil // Clear resources when loading describe view
+		m.logLines = nil  // Clear log lines when loading describe view
+		m.currentGVR.Resource = k8s.ResourceDescribe
+		m.currentNamespace = msg.namespace
+
+		// Update key bindings for describe view
+		m.updateKeysForResourceType()
+		m.updateColumns(m.viewWidth)
+
+		// Reset to first page
+		m.paginator.Page = 0
+		m.updateTableData()
+		m.table.SetCursor(0)
+
+		return m, nil
+
 	case errMsg:
 		log.G().Error("error occurred", "error", msg.err)
 		m.err = msg.err
@@ -507,6 +533,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "y":
 				// Yank/copy selected row (if implemented in future)
 				return m, nil
+			case "D", "shift+d":
+				// Describe the currently selected resource
+				if m.currentGVR.Resource == k8s.ResourceLogs ||
+					m.currentGVR.Resource == k8s.ResourceDescribe ||
+					m.currentGVR.Resource == k8s.ResourceContainers ||
+					m.currentGVR.Resource == k8s.ResourceAPIResources {
+					return m, nil // Can't describe these resource types
+				}
+				if !m.isConnected() {
+					m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
+					return m, nil
+				}
+				return m, m.commandWithPreflights(
+					m.describeCurrentResource(),
+					m.requireConnection,
+				)
 			case "j", "down":
 				// Handle navigation directly to prevent double-processing
 				// Check if at bottom of current page
