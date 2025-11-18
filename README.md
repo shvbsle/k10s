@@ -1,5 +1,9 @@
 # k10s
 
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Go Version](https://img.shields.io/badge/go-1.24%2B-00ADD8.svg)](https://golang.org/)
+[![Kubernetes](https://img.shields.io/badge/kubernetes-1.25%2B-326ce5.svg)](https://kubernetes.io/)
+
 🙀 A modern, pretty TUI for Kubernetes, tuned for AI Hyperscaler clusters. 
 
 Built with Go + Bubble Tea.
