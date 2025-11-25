@@ -15,6 +15,7 @@ type keyMap struct {
 	Enter      key.Binding
 	Back       key.Binding
 	Command    key.Binding
+	Search     key.Binding
 	Quit       key.Binding
 	// Log view specific bindings
 	Fullscreen key.Binding
@@ -70,6 +71,10 @@ func newKeyMap() keyMap {
 		Command: key.NewBinding(
 			key.WithKeys(":"),
 			key.WithHelp(":", "command"),
+		),
+		Search: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "search"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("ctrl+c"),

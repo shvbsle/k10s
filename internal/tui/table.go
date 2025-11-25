@@ -104,22 +104,31 @@ func (m *Model) updateTableData() {
 
 // updateTableDataForResources updates table with Kubernetes resources.
 func (m *Model) updateTableDataForResources() {
+	// Use filtered resources if search is active, otherwise use all resources
+	displayResources := m.resources
+	if m.activeSearchQuery != "" {
+		displayResources = m.filteredResources
+	} else if m.searchQuery != "" {
+		// Real-time filtering while typing
+		displayResources = m.filteredResources
+	}
+
 	// Bounds checking to prevent slice out of range
-	if len(m.resources) == 0 {
+	if len(displayResources) == 0 {
 		m.table.SetRows([]table.Row{})
 		m.paginator.SetTotalPages(0)
 		return
 	}
 
 	start := m.paginator.Page * m.paginator.PerPage
-	if start >= len(m.resources) {
+	if start >= len(displayResources) {
 		start = 0
 		m.paginator.Page = 0
 	}
 
-	end := min(start+m.paginator.PerPage, len(m.resources))
+	end := min(start+m.paginator.PerPage, len(displayResources))
 
-	pageResources := m.resources[start:end]
+	pageResources := displayResources[start:end]
 	rows := make([]table.Row, len(pageResources))
 
 	for i, res := range pageResources {
@@ -127,27 +136,36 @@ func (m *Model) updateTableDataForResources() {
 	}
 
 	m.table.SetRows(rows)
-	m.paginator.SetTotalPages(len(m.resources))
+	m.paginator.SetTotalPages(len(displayResources))
 }
 
 // updateTableDataForLogs updates table with container logs.
 func (m *Model) updateTableDataForLogs() {
+	// Use filtered logs if search is active, otherwise use all logs
+	displayLogLines := m.logLines
+	if m.activeSearchQuery != "" {
+		displayLogLines = m.filteredLogLines
+	} else if m.searchQuery != "" {
+		// Real-time filtering while typing
+		displayLogLines = m.filteredLogLines
+	}
+
 	// Bounds checking to prevent slice out of range
-	if len(m.logLines) == 0 {
+	if len(displayLogLines) == 0 {
 		m.table.SetRows([]table.Row{})
 		m.paginator.SetTotalPages(0)
 		return
 	}
 
 	start := m.paginator.Page * m.paginator.PerPage
-	if start >= len(m.logLines) {
+	if start >= len(displayLogLines) {
 		start = 0
 		m.paginator.Page = 0
 	}
 
-	end := min(start+m.paginator.PerPage, len(m.logLines))
+	end := min(start+m.paginator.PerPage, len(displayLogLines))
 
-	pageLogLines := m.logLines[start:end]
+	pageLogLines := displayLogLines[start:end]
 	var rows []table.Row
 
 	for _, logLine := range pageLogLines {
@@ -156,7 +174,7 @@ func (m *Model) updateTableDataForLogs() {
 	}
 
 	m.table.SetRows(rows)
-	m.paginator.SetTotalPages(len(m.logLines))
+	m.paginator.SetTotalPages(len(displayLogLines))
 }
 
 // formatLogLine formats a single log line for table display with optional wrapping.
@@ -216,7 +234,20 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 		nsDisplay = "all"
 	}
 
-	headerText := fmt.Sprintf(" %s [%s] (%d) ", k8s.FormatGVR(m.currentGVR), nsDisplay, len(m.resources))
+	// Show filtered count if search is active
+	count := len(m.resources)
+	if m.currentGVR.Resource == k8s.ResourceLogs {
+		count = len(m.logLines)
+		if m.activeSearchQuery != "" || m.searchQuery != "" {
+			count = len(m.filteredLogLines)
+		}
+	} else {
+		if m.activeSearchQuery != "" || m.searchQuery != "" {
+			count = len(m.filteredResources)
+		}
+	}
+
+	headerText := fmt.Sprintf(" %s [%s] (%d) ", k8s.FormatGVR(m.currentGVR), nsDisplay, count)
 	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 
 	borderColor := lipgloss.Color("240")
