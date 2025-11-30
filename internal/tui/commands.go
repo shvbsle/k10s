@@ -222,7 +222,8 @@ func (m *Model) reconnectCmd() tea.Cmd {
 		}
 
 		log.G().Info("reconnect successful, loading resources")
-		return m.loadResources(m.currentGVR.Resource)
+		// Execute the loadResources command to get the actual message
+		return m.loadResources(m.currentGVR.Resource)()
 	}
 }
 
