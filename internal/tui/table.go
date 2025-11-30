@@ -523,9 +523,9 @@ func (m *Model) buildTopBorderWithTitle(title string, width int, borderColor lip
 
 // updateColumns updates the table columns based on the current width and resource type.
 func (m *Model) updateColumns(width int) {
-	// Rough calc for border renders:
-	// Total overhead: 2 (borders) + 5 (column spacing) = 7
-	totalWidth := max(width-10, 90)
+	// Account for borders and margin:
+	// 2 chars for left/right borders (│) + 4 chars margin = 6 total overhead
+	totalWidth := width - 4
 	columns := resources.GetColumns(totalWidth, m.currentGVR.Resource)
 
 	// we have to clear rows if we're going to update columns to avoid breaking

@@ -19,7 +19,7 @@ func NewLogViewState() *LogViewState {
 		Autoscroll:     true,
 		Fullscreen:     false,
 		ShowTimestamps: false,
-		WrapText:       true,
+		WrapText:       false,
 	}
 }
 
