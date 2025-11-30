@@ -205,5 +205,13 @@
         "weight": 0.25
       }
     ]
+  },
+  "describe": {
+    "fields": [
+      {
+        "name": "",
+        "weight": 1
+      }
+    ]
   }
 }

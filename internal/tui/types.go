@@ -23,6 +23,22 @@ func NewLogViewState() *LogViewState {
 	}
 }
 
+// DescribeViewState holds configuration for describe view.
+type DescribeViewState struct {
+	Fullscreen      bool
+	WrapText        bool
+	ShowLineNumbers bool
+}
+
+// NewDescribeViewState creates a DescribeViewState with sensible defaults.
+func NewDescribeViewState() *DescribeViewState {
+	return &DescribeViewState{
+		Fullscreen:      false,
+		WrapText:        false,
+		ShowLineNumbers: false,
+	}
+}
+
 // DisplayRow represents a single row that can be displayed in the TUI table.
 // Different resource types implement this interface to provide consistent table rendering.
 type DisplayRow interface {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 	"text/template"
@@ -175,10 +176,6 @@ func (m *Model) loadResources(resource string) tea.Cmd {
 }
 
 // loadResources creates a command that loads the specified resource type using current namespace.
-func (m *Model) loadResourcesGVR(gvr schema.GroupVersionResource) tea.Cmd {
-	return m.loadResourcesWithNamespace(gvr, m.currentNamespace, metav1.ListOptions{})
-}
-
 // loadResourcesWithNamespace creates a command that loads the specified resource type from a specific namespace.
 func (m *Model) loadResourcesWithNamespace(gvr schema.GroupVersionResource, namespace string, listOptions metav1.ListOptions) tea.Cmd {
 	return func() tea.Msg {
@@ -360,4 +357,59 @@ func (m *Model) commandWithPreflights(cmd tea.Cmd, preflights ...func() error) t
 		}
 	}
 	return cmd
+}
+
+// describeCurrentResource creates a command that fetches and describes the currently selected resource in YAML format.
+func (m *Model) describeCurrentResource() tea.Cmd {
+	return func() tea.Msg {
+		if len(m.resources) == 0 {
+			return commandErrMsg{message: "no resource selected"}
+		}
+
+		actualIdx := m.paginator.Page*m.paginator.PerPage + m.table.Cursor()
+		if actualIdx >= len(m.resources) {
+			return commandErrMsg{message: "invalid selection"}
+		}
+
+		selectedResource := m.resources[actualIdx]
+
+		// Extract name and namespace from the selected row
+		var selectedName, selectedNamespace string
+		if nameIndex, ok := k8s.NameColumn(m.table.Columns()); ok {
+			selectedName = selectedResource[nameIndex]
+		}
+		if namespaceIndex, ok := k8s.NamespaceColumn(m.table.Columns()); ok {
+			selectedNamespace = selectedResource[namespaceIndex]
+		}
+
+		// Use the current namespace if no namespace column exists (cluster-scoped resources)
+		if selectedNamespace == "" {
+			selectedNamespace = m.currentNamespace
+		}
+
+		log.G().Info("describing resource", "gvr", m.currentGVR, "name", selectedName, "namespace", selectedNamespace)
+
+		// Use kubectl describe to get human-readable output
+		var cmd *exec.Cmd
+		resourceType := m.currentGVR.Resource
+
+		if selectedNamespace != "" && selectedNamespace != metav1.NamespaceAll {
+			cmd = exec.Command("kubectl", "describe", resourceType, selectedName, "-n", selectedNamespace)
+		} else {
+			cmd = exec.Command("kubectl", "describe", resourceType, selectedName)
+		}
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			log.G().Error("failed to describe resource", "error", err, "output", string(output))
+			return errMsg{fmt.Errorf("failed to describe resource: %w\n%s", err, string(output))}
+		}
+
+		return resourceDescribedMsg{
+			yamlContent:  string(output),
+			resourceName: selectedName,
+			namespace:    selectedNamespace,
+			gvr:          m.currentGVR,
+		}
+	}
 }

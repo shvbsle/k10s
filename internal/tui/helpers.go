@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	"github.com/shvbsle/k10s/internal/k8s"
 )
 
@@ -36,18 +38,23 @@ func (m *Model) getTotalItems() int {
 	if m.currentGVR.Resource == k8s.ResourceLogs && m.logLines != nil {
 		return len(m.logLines)
 	}
+	if m.currentGVR.Resource == k8s.ResourceDescribe && m.describeContent != "" {
+		return len(strings.Split(m.describeContent, "\n"))
+	}
 	return len(m.resources)
 }
 
 func (m *Model) updateKeysForResourceType() {
 	isLogs := m.currentGVR.Resource == k8s.ResourceLogs
+	isDescribe := m.currentGVR.Resource == k8s.ResourceDescribe
 
 	// Enable/disable log-specific keys
-	m.keys.Fullscreen.SetEnabled(isLogs)
+	m.keys.Fullscreen.SetEnabled(isLogs || isDescribe)
 	m.keys.Autoscroll.SetEnabled(isLogs)
 	m.keys.ToggleTime.SetEnabled(isLogs)
-	m.keys.WrapText.SetEnabled(isLogs)
+	m.keys.WrapText.SetEnabled(isLogs || isDescribe)
 	m.keys.CopyLogs.SetEnabled(isLogs)
+	m.keys.ToggleLineNums.SetEnabled(isDescribe)
 
 	// Enable namespace keys only for namespace-aware resources
 	canUseNS := m.isNamespaced(m.currentGVR.Resource)
