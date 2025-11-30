@@ -257,6 +257,21 @@ func (m *Model) renderCommandInput(b *strings.Builder) {
 	}
 }
 
+// canDrillDown checks if drill-down is supported for the current resource type.
+func (m *Model) canDrillDown() bool {
+	// Special resources with hardcoded drill-down support
+	switch m.currentGVR.Resource {
+	case k8s.ResourcePods, k8s.ResourceContainers:
+		return true
+	case k8s.ResourceLogs, k8s.ResourceDescribe, k8s.ResourceAPIResources:
+		return false
+	}
+
+	// Check if resource has drill-down configuration
+	resourceView := resources.GetResourceView(m.currentGVR.Resource)
+	return resourceView.DrillDown != nil
+}
+
 // drillDown handles drilling down into a selected resource.
 // TODO: refactor to not use ordered fields.
 func (m *Model) drillDown(selectedResource k8s.OrderedResourceFields) tea.Cmd {

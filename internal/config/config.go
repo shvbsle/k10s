@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	// DefaultMaxPageSize is the default number of items to display per page.
-	DefaultMaxPageSize = 20
+	// AutoPageSize indicates that page size should use all available screen space.
+	// This is the default behavior when no page_size is configured.
+	AutoPageSize = 0
 	// DefaultLogTailLines is the default number of log lines to fetch.
 	DefaultLogTailLines = 100
 	// DefaultLogo is the default ASCII art logo displayed in the TUI header.
@@ -46,7 +47,7 @@ type Config struct {
 // exist or cannot be read, it returns a Config with default values.
 func Load() (*Config, error) {
 	cfg := &Config{
-		MaxPageSize:     DefaultMaxPageSize,
+		MaxPageSize:     AutoPageSize, // Default to auto (use all available space)
 		LogTailLines:    DefaultLogTailLines,
 		Logo:            DefaultLogo,
 		PaginationStyle: PaginationStyleBubbles,
@@ -107,7 +108,9 @@ func Load() (*Config, error) {
 		switch key {
 		// TODO: rename to max_page_size
 		case "page_size":
-			if size, err := strconv.Atoi(value); err == nil && size > 0 {
+			if strings.ToLower(value) == "auto" {
+				cfg.MaxPageSize = AutoPageSize
+			} else if size, err := strconv.Atoi(value); err == nil && size > 0 {
 				cfg.MaxPageSize = size
 			}
 		case "log_tail_lines":
@@ -147,7 +150,9 @@ func CreateDefaultConfig() error {
 
 	defaultConfig := `# k10s configuration file
 # Number of items per page in table views
-page_size=20
+# Set to "auto" to use all available screen space (default)
+# Or set to a specific number (e.g., 20)
+page_size=auto
 
 # Number of log lines to fetch when viewing container logs
 log_tail_lines=100

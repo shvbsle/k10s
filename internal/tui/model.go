@@ -125,10 +125,14 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 	// Initial columnMap for pods (default resource type)
 	columns := resources.GetColumns(100, k8s.ResourcePods)
 
+	// Use a reasonable initial height (will be updated immediately on first WindowSizeMsg)
+	// We use 20 as a temporary value just for initialization
+	initialHeight := 20
+
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithFocused(true),
-		table.WithHeight(cfg.MaxPageSize),
+		table.WithHeight(initialHeight),
 	)
 
 	s := table.DefaultStyles()
@@ -143,7 +147,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 
 	p := paginator.New()
 	p.Type = paginator.Dots
-	p.PerPage = cfg.MaxPageSize
+	p.PerPage = initialHeight
 	p.ActiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "235", Dark: "252"}).Render("•")
 	p.InactiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "250", Dark: "238"}).Render("•")
 
@@ -282,12 +286,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		tableHeight := max(m.viewHeight-headerHeight, 5)
 		m.table.SetHeight(tableHeight)
 
-		// dynamic update page size to occupy the rest of the screen, respecting
-		// a maximum provided the by the user in the configuration file.
-		// Exception: for describe view, always use full tableHeight
+		// Dynamic page size calculation:
+		// - Describe view always uses full tableHeight
+		// - If MaxPageSize is 0 (auto/default), use all available tableHeight
+		// - If MaxPageSize is set to a specific number, use it as a ceiling (but never exceed tableHeight)
 		if m.currentGVR.Resource == k8s.ResourceDescribe {
+			// Describe view always uses full height
+			m.paginator.PerPage = tableHeight
+		} else if m.config.MaxPageSize == config.AutoPageSize || m.config.MaxPageSize == 0 {
+			// Auto mode (default): use all available screen space
 			m.paginator.PerPage = tableHeight
 		} else {
+			// User specified a maximum: use it as ceiling, but never exceed available height
 			m.paginator.PerPage = min(m.config.MaxPageSize, tableHeight)
 		}
 
@@ -464,6 +474,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case ":":
 				m.viewMode = ViewModeCommand
 				m.commandInput.Focus()
+				// Clear any previous error or success messages when entering command mode
+				m.commandErr = ""
+				m.commandSuccess = ""
 				return m, nil
 			case "enter":
 				if m.currentGVR.Resource == k8s.ResourceLogs {
@@ -478,6 +491,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				selectedResource := m.resources[actualIdx]
+
+				// Check if drill-down is supported before modifying navigation history
+				if !m.canDrillDown() {
+					return m, nil
+				}
 
 				var selectedNamespace, selectedName string
 				if nameIndex, ok := k8s.NameColumn(m.table.Columns()); ok {
@@ -756,7 +774,18 @@ func (m *Model) View() string {
 	output := b.String()
 	if m.viewHeight > 0 {
 		renderedLines := strings.Count(output, "\n") + 1
-		totalNeeded := m.viewHeight - commandPaletteLines - commandErrorLines - commandSuccessLines
+		// When in command mode, only reserve space for command palette (ignore error/success)
+		// This ensures command input doesn't shift when replacing error messages
+		var bottomReservedLines int
+		if m.viewMode == ViewModeCommand {
+			bottomReservedLines = commandPaletteLines
+		} else if m.commandErr != "" {
+			bottomReservedLines = commandErrorLines
+		} else if m.commandSuccess != "" {
+			bottomReservedLines = commandSuccessLines
+		}
+
+		totalNeeded := m.viewHeight - bottomReservedLines
 
 		if renderedLines < totalNeeded {
 			remainingLines := totalNeeded - renderedLines
