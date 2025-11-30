@@ -54,12 +54,12 @@ func newKeyMap() keyMap {
 			key.WithHelp("G", "bottom"),
 		),
 		AllNS: key.NewBinding(
-			key.WithKeys("0"),
-			key.WithHelp("0", "all ns"),
+			key.WithKeys(),
+			key.WithHelp("", "all ns"),
 		),
 		DefaultNS: key.NewBinding(
-			key.WithKeys("d"),
-			key.WithHelp("d", "default ns"),
+			key.WithKeys(),
+			key.WithHelp("", "default ns"),
 		),
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),

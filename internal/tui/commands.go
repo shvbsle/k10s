@@ -176,10 +176,6 @@ func (m *Model) loadResources(resource string) tea.Cmd {
 }
 
 // loadResources creates a command that loads the specified resource type using current namespace.
-func (m *Model) loadResourcesGVR(gvr schema.GroupVersionResource) tea.Cmd {
-	return m.loadResourcesWithNamespace(gvr, m.currentNamespace, metav1.ListOptions{})
-}
-
 // loadResourcesWithNamespace creates a command that loads the specified resource type from a specific namespace.
 func (m *Model) loadResourcesWithNamespace(gvr schema.GroupVersionResource, namespace string, listOptions metav1.ListOptions) tea.Cmd {
 	return func() tea.Msg {

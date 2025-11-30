@@ -445,33 +445,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.viewMode = ViewModeCommand
 				m.commandInput.Focus()
 				return m, nil
-			case "0":
-				if !m.isConnected() {
-					m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
-					return m, nil
-				}
-				if !m.isNamespaced(m.currentGVR.Resource) {
-					return m, nil // No-op for non-namespace-aware resources
-				}
-				m.currentNamespace = metav1.NamespaceAll
-				m.paginator.Page = 0
-				m.err = nil
-				return m, m.loadResources(m.currentGVR.Resource)
-			case "d":
-				if !m.isConnected() {
-					m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
-					return m, nil
-				}
-				if !m.isNamespaced(m.currentGVR.Resource) {
-					return m, nil // No-op for non-namespace-aware resources
-				}
-				if m.clusterInfo != nil {
-					m.currentNamespace = m.clusterInfo.Namespace
-					m.paginator.Page = 0
-					m.err = nil
-					return m, m.loadResourcesGVR(m.currentGVR)
-				}
-				return m, nil
 			case "enter":
 				if m.currentGVR.Resource == k8s.ResourceLogs {
 					return m, nil
@@ -632,6 +605,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "ctrl+c":
 				return m, tea.Quit
+			case "d", "0":
+				// Explicitly ignore these keys to prevent fallthrough to table
+				return m, nil
 			}
 			// For unhandled keys in normal mode, pass to table
 			m.table, cmd = m.table.Update(msg)
