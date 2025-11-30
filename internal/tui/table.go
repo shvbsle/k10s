@@ -183,14 +183,68 @@ func (m *Model) updateTableDataForDescribe() {
 	end := min(start+m.paginator.PerPage, len(lines))
 	pageLines := lines[start:end]
 
-	// Convert lines to table rows
+	// Convert lines to table rows with syntax highlighting
 	rows := make([]table.Row, len(pageLines))
 	for i, line := range pageLines {
-		rows[i] = table.Row{line}
+		highlightedLine := m.highlightDescribeLine(line)
+
+		if m.describeView.ShowLineNumbers {
+			// Add line number prefix (1-indexed, relative to whole document)
+			lineNum := start + i + 1
+			rows[i] = table.Row{fmt.Sprintf("%4d: %s", lineNum, highlightedLine)}
+		} else {
+			rows[i] = table.Row{highlightedLine}
+		}
 	}
 
 	m.table.SetRows(rows)
 	m.paginator.SetTotalPages(len(lines))
+}
+
+// highlightDescribeLine applies syntax highlighting to a kubectl describe output line.
+// It highlights keys (text ending with ':') in a different color.
+func (m *Model) highlightDescribeLine(line string) string {
+	// Find the position of the first colon
+	colonIdx := strings.Index(line, ":")
+	if colonIdx == -1 {
+		return line // No colon, return as-is
+	}
+
+	beforeColon := line[:colonIdx]
+	trimmedBefore := strings.TrimLeft(beforeColon, " \t")
+
+	// Check if this looks like a key:
+	// 1. Not empty
+	// 2. Starts at the beginning of the line (after whitespace)
+	// 3. Doesn't contain special characters that indicate it's not a label
+	if trimmedBefore == "" {
+		return line
+	}
+
+	// Check if the line contains characters that suggest it's not a key
+	invalidChars := []string{"\"", "'", "(", ")", "[", "]", "{", "}", "=", "<", ">"}
+	for _, char := range invalidChars {
+		if strings.Contains(trimmedBefore, char) {
+			return line // Contains invalid characters, not a key
+		}
+	}
+
+	// Additional check: if there's text after the colon on the same line,
+	// and it starts immediately (no space), it's probably not a label
+	// (e.g., "http://example.com:8080")
+	if colonIdx+1 < len(line) && line[colonIdx+1] != ' ' && line[colonIdx+1] != '\t' && line[colonIdx+1] != '\n' {
+		return line
+	}
+
+	// Get the leading whitespace
+	leadingSpace := beforeColon[:len(beforeColon)-len(trimmedBefore)]
+	afterColon := line[colonIdx:]
+
+	// Highlight the key in cyan and bold
+	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	highlightedKey := keyStyle.Render(trimmedBefore)
+
+	return leadingSpace + highlightedKey + afterColon
 }
 
 // formatLogLine formats a single log line for table display with optional wrapping.
@@ -272,27 +326,29 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 	b.WriteString(topBorder)
 	b.WriteString("\n")
 
-	// Render column headers manually
-	headerLine := ""
-	for i, col := range columns {
-		if i > 0 {
-			headerLine += " "
+	// Render column headers manually (skip for logs and describe views as they don't need columns)
+	if m.currentGVR.Resource != k8s.ResourceLogs && m.currentGVR.Resource != k8s.ResourceDescribe {
+		headerLine := ""
+		for i, col := range columns {
+			if i > 0 {
+				headerLine += " "
+			}
+			// Truncate or pad to exact width
+			title := col.Title
+			if len(title) > col.Width {
+				title = title[:col.Width]
+			} else if len(title) < col.Width {
+				title = title + strings.Repeat(" ", col.Width-len(title))
+			}
+			headerLine += title
 		}
-		// Truncate or pad to exact width
-		title := col.Title
-		if len(title) > col.Width {
-			title = title[:col.Width]
-		} else if len(title) < col.Width {
-			title = title + strings.Repeat(" ", col.Width-len(title))
-		}
-		headerLine += title
-	}
 
-	headerLineStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
-	b.WriteString(borderStyle.Render("│"))
-	b.WriteString(headerLineStyle.Render(headerLine))
-	b.WriteString(borderStyle.Render("│"))
-	b.WriteString("\n")
+		headerLineStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
+		b.WriteString(borderStyle.Render("│"))
+		b.WriteString(headerLineStyle.Render(headerLine))
+		b.WriteString(borderStyle.Render("│"))
+		b.WriteString("\n")
+	}
 
 	// Render toggle status for logs view
 	if m.currentGVR.Resource == k8s.ResourceLogs {
@@ -329,6 +385,50 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 			timestampStatus+labelStyle.Render("]"),
 			labelStyle.Render("[Wrap:"),
 			wrapStatus+labelStyle.Render("]"),
+		)
+
+		// Pad or truncate to exact table width using ANSI-aware functions
+		toggleLineLen := lipgloss.Width(toggleLine)
+		if toggleLineLen > tableWidth {
+			toggleLine = ansi.Truncate(toggleLine, tableWidth, "…")
+		} else if toggleLineLen < tableWidth {
+			toggleLine += strings.Repeat(" ", tableWidth-toggleLineLen)
+		}
+
+		b.WriteString(borderStyle.Render("│"))
+		b.WriteString(toggleLine)
+		b.WriteString(borderStyle.Render("│"))
+		b.WriteString("\n")
+	}
+
+	// Render toggle status for describe view
+	if m.currentGVR.Resource == k8s.ResourceDescribe {
+		onStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
+		offStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+		labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+
+		fullscreenStatus := offStyle.Render("OFF")
+		if m.describeView.Fullscreen {
+			fullscreenStatus = onStyle.Render("ON")
+		}
+
+		wrapStatus := offStyle.Render("OFF")
+		if m.describeView.WrapText {
+			wrapStatus = onStyle.Render("ON")
+		}
+
+		lineNumsStatus := offStyle.Render("OFF")
+		if m.describeView.ShowLineNumbers {
+			lineNumsStatus = onStyle.Render("ON")
+		}
+
+		toggleLine := fmt.Sprintf(" %s %s %s %s %s %s",
+			labelStyle.Render("[Fullscreen:"),
+			fullscreenStatus+labelStyle.Render("]"),
+			labelStyle.Render("[Wrap:"),
+			wrapStatus+labelStyle.Render("]"),
+			labelStyle.Render("[Show Lines:"),
+			lineNumsStatus+labelStyle.Render("]"),
 		)
 
 		// Pad or truncate to exact table width using ANSI-aware functions

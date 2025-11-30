@@ -62,6 +62,7 @@ type Model struct {
 	currentNamespace  string
 	navigationHistory *NavigationHistory
 	logView           *LogViewState
+	describeView      *DescribeViewState
 	ready             bool
 	viewMode          ViewMode
 	viewWidth         int
@@ -160,6 +161,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 	keys.ToggleTime.SetEnabled(false)
 	keys.WrapText.SetEnabled(false)
 	keys.CopyLogs.SetEnabled(false)
+	keys.ToggleLineNums.SetEnabled(false)
 
 	h := help.New()
 	h.ShowAll = true // Show full help by default
@@ -212,6 +214,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 		commandHistory:    cli.NewCommandHistory(100),
 		navigationHistory: NewNavigationHistory(),
 		logView:           NewLogViewState(),
+		describeView:      NewDescribeViewState(),
 		pluginRegistry:    registry,
 	}
 }
@@ -281,7 +284,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// dynamic update page size to occupy the rest of the screen, respecting
 		// a maximum provided the by the user in the configuration file.
-		m.paginator.PerPage = min(m.config.MaxPageSize, tableHeight)
+		// Exception: for describe view, always use full tableHeight
+		if m.currentGVR.Resource == k8s.ResourceDescribe {
+			m.paginator.PerPage = tableHeight
+		} else {
+			m.paginator.PerPage = min(m.config.MaxPageSize, tableHeight)
+		}
 
 		m.updateColumns(m.viewWidth)
 		m.updateTableData()
@@ -342,6 +350,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update key bindings for describe view
 		m.updateKeysForResourceType()
 		m.updateColumns(m.viewWidth)
+
+		// Set pagination to use full table height for describe view
+		// Use the same header height calculation as in WindowSizeMsg
+		baseHeaderHeight := 20
+		headerHeight := baseHeaderHeight
+		if m.viewHeight > 50 {
+			headerHeight = 22
+		} else if m.viewHeight < 30 {
+			headerHeight = 15
+		}
+		tableHeight := max(m.viewHeight-headerHeight, 5)
+		m.paginator.PerPage = tableHeight
 
 		// Reset to first page
 		m.paginator.Page = 0
@@ -479,8 +499,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "f":
-				if m.currentGVR.Resource == k8s.ResourceLogs {
+				switch m.currentGVR.Resource {
+				case k8s.ResourceLogs:
 					m.logView.Fullscreen = !m.logView.Fullscreen
+				case k8s.ResourceDescribe:
+					m.describeView.Fullscreen = !m.describeView.Fullscreen
 				}
 				return m, nil
 			case "s":
@@ -498,15 +521,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "w":
-				if m.currentGVR.Resource == k8s.ResourceLogs {
+				switch m.currentGVR.Resource {
+				case k8s.ResourceLogs:
 					m.logView.WrapText = !m.logView.WrapText
+					m.updateTableData()
+				case k8s.ResourceDescribe:
+					m.describeView.WrapText = !m.describeView.WrapText
+					m.updateTableData()
+				}
+				return m, nil
+			case "n":
+				if m.currentGVR.Resource == k8s.ResourceDescribe {
+					m.describeView.ShowLineNumbers = !m.describeView.ShowLineNumbers
 					m.updateTableData()
 				}
 				return m, nil
 			case "y":
 				// Yank/copy selected row (if implemented in future)
 				return m, nil
-			case "D", "shift+d":
+			case "d":
 				// Describe the currently selected resource
 				if m.currentGVR.Resource == k8s.ResourceLogs ||
 					m.currentGVR.Resource == k8s.ResourceDescribe ||
@@ -570,7 +603,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "G":
 				// Go to last line of last page (absolute last line)
-				if m.currentGVR.Resource == k8s.ResourceLogs {
+				switch m.currentGVR.Resource {
+				case k8s.ResourceLogs:
 					// For logs, go to last page and enable autoscroll for tailing
 					totalLogs := len(m.logLines)
 					if totalLogs > 0 {
@@ -580,7 +614,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.table.GotoBottom()
 						m.logView.Autoscroll = true
 					}
-				} else {
+				case k8s.ResourceDescribe:
+					// For describe view, go to last page
+					if m.describeContent != "" {
+						lines := strings.Split(m.describeContent, "\n")
+						totalLines := len(lines)
+						if totalLines > 0 {
+							lastPage := (totalLines - 1) / m.paginator.PerPage
+							m.paginator.Page = lastPage
+							m.updateTableData()
+							m.table.GotoBottom()
+						}
+					}
+				default:
 					// For resources, go to last page
 					totalResources := len(m.resources)
 					if totalResources > 0 {
@@ -605,8 +651,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "ctrl+c":
 				return m, tea.Quit
-			case "d", "0":
-				// Explicitly ignore these keys to prevent fallthrough to table
+			case "0":
+				// Explicitly ignore this key to prevent fallthrough to table
 				return m, nil
 			}
 			// For unhandled keys in normal mode, pass to table
@@ -636,8 +682,10 @@ func (m *Model) View() string {
 
 	b.WriteString("\n")
 
-	// Skip top header if fullscreen is enabled for logs
-	if !m.logView.Fullscreen || m.currentGVR.Resource != k8s.ResourceLogs {
+	// Skip top header if fullscreen is enabled for logs or describe
+	skipHeader := (m.logView != nil && m.logView.Fullscreen && m.currentGVR.Resource == k8s.ResourceLogs) ||
+		(m.describeView != nil && m.describeView.Fullscreen && m.currentGVR.Resource == k8s.ResourceDescribe)
+	if !skipHeader {
 		m.renderTopHeader(&b)
 		b.WriteString("\n\n")
 	}
@@ -658,17 +706,20 @@ func (m *Model) View() string {
 	}
 
 	m.renderTableWithHeader(&b)
-	b.WriteString("\n")
 
 	// Render breadcrumb navigation if we're in a drilled-down view
 	if m.navigationHistory.Len() > 0 {
-		b.WriteString("\n")
+		b.WriteString("\n\n")
 		m.renderBreadcrumb(&b)
 	}
 
-	// Render pagination based on configured style
+	// Render pagination based on configured style (more compact for describe/logs views)
 	if m.getTotalItems() > m.paginator.PerPage {
-		b.WriteString("\n")
+		if m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceLogs {
+			b.WriteString("\n") // Single newline for describe/logs
+		} else {
+			b.WriteString("\n\n") // Double newline for resource lists
+		}
 		m.renderPagination(&b)
 	}
 

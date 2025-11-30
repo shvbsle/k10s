@@ -17,11 +17,12 @@ type keyMap struct {
 	Command    key.Binding
 	Quit       key.Binding
 	// Log view specific bindings
-	Fullscreen key.Binding
-	Autoscroll key.Binding
-	ToggleTime key.Binding
-	WrapText   key.Binding
-	CopyLogs   key.Binding
+	Fullscreen     key.Binding
+	Autoscroll     key.Binding
+	ToggleTime     key.Binding
+	WrapText       key.Binding
+	CopyLogs       key.Binding
+	ToggleLineNums key.Binding
 	// Resource actions
 	Describe key.Binding
 }
@@ -97,9 +98,13 @@ func newKeyMap() keyMap {
 			key.WithKeys(":cplogs"),
 			key.WithHelp(":cplogs", "copy logs [all] [path]"),
 		),
+		ToggleLineNums: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n", "line numbers"),
+		),
 		Describe: key.NewBinding(
-			key.WithKeys("D", "shift+d"),
-			key.WithHelp("D", "describe"),
+			key.WithKeys("d"),
+			key.WithHelp("d", "describe"),
 		),
 	}
 }

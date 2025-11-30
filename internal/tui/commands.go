@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 	"text/template"
@@ -20,7 +21,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/yaml"
 )
 
 type launchPluginMsg struct {
@@ -389,25 +389,24 @@ func (m *Model) describeCurrentResource() tea.Cmd {
 
 		log.G().Info("describing resource", "gvr", m.currentGVR, "name", selectedName, "namespace", selectedNamespace)
 
-		// Get the full resource object from the cluster
-		resource, err := m.k8sClient.Dynamic().
-			Resource(m.currentGVR).
-			Namespace(selectedNamespace).
-			Get(context.Background(), selectedName, metav1.GetOptions{})
-		if err != nil {
-			log.G().Error("failed to get resource for describe", "error", err)
-			return errMsg{fmt.Errorf("failed to get resource: %w", err)}
+		// Use kubectl describe to get human-readable output
+		var cmd *exec.Cmd
+		resourceType := m.currentGVR.Resource
+
+		if selectedNamespace != "" && selectedNamespace != metav1.NamespaceAll {
+			cmd = exec.Command("kubectl", "describe", resourceType, selectedName, "-n", selectedNamespace)
+		} else {
+			cmd = exec.Command("kubectl", "describe", resourceType, selectedName)
 		}
 
-		// Convert the unstructured object to YAML
-		yamlBytes, err := yaml.Marshal(resource.Object)
+		output, err := cmd.CombinedOutput()
 		if err != nil {
-			log.G().Error("failed to marshal resource to YAML", "error", err)
-			return errMsg{fmt.Errorf("failed to marshal YAML: %w", err)}
+			log.G().Error("failed to describe resource", "error", err, "output", string(output))
+			return errMsg{fmt.Errorf("failed to describe resource: %w\n%s", err, string(output))}
 		}
 
 		return resourceDescribedMsg{
-			yamlContent:  string(yamlBytes),
+			yamlContent:  string(output),
 			resourceName: selectedName,
 			namespace:    selectedNamespace,
 			gvr:          m.currentGVR,
