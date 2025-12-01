@@ -23,9 +23,9 @@
         "weight": 0.18
       },
       {
-        "name": "Status",
+        "name": "Phase",
         "resolver": {
-          "func": "podStatus"
+          "path": "{{ .status.phase }}"
         },
         "weight": 0.12
       },

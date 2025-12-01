@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"slices"
 	"sort"
 	"strings"
 	"text/template"
@@ -21,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 type launchPluginMsg struct {
@@ -179,10 +181,7 @@ func (m *Model) loadResources(resource string) tea.Cmd {
 // loadResourcesWithNamespace creates a command that loads the specified resource type from a specific namespace.
 func (m *Model) loadResourcesWithNamespace(gvr schema.GroupVersionResource, namespace string, listOptions metav1.ListOptions) tea.Cmd {
 	return func() tea.Msg {
-		resourceList, err := m.k8sClient.Dynamic().
-			Resource(gvr).
-			Namespace(namespace).
-			List(context.TODO(), listOptions)
+		resourceList, err := m.k8sClient.Dynamic().Resource(gvr).Namespace(namespace).List(context.TODO(), listOptions)
 		if err != nil {
 			log.G().Error("failed to load resources", "gvr", gvr, "error", err)
 			return errMsg{err}
@@ -193,12 +192,81 @@ func (m *Model) loadResourcesWithNamespace(gvr schema.GroupVersionResource, name
 			namespace:   namespace,
 			listOptions: listOptions,
 			resources: lo.Map(resourceList.Items, func(object unstructured.Unstructured, _ int) k8s.OrderedResourceFields {
-				return k8s.OrderedResourceFields(lo.Map(resources.GetResourceView(gvr.Resource).Fields, func(field resources.ResourceViewField, _ int) string {
+				return lo.Map(resources.GetResourceView(gvr.Resource).Fields, func(field resources.ResourceViewField, _ int) string {
 					// TODO: handle more gracefully
-					return lo.Must(field.Resolver.Resolve(object))
-				}))
+					return lo.Must(field.Resolver.Resolve(&object))
+				})
 			}),
 		}
+	}
+}
+
+func (m *Model) watchResources(gvr schema.GroupVersionResource, namespace string) tea.Cmd {
+	return func() tea.Msg {
+		// we dont need to setup the watcher.
+		if m.resourceWatcher != nil {
+			return nil
+		}
+
+		w, err := m.k8sClient.Dynamic().Resource(gvr).Namespace(namespace).Watch(context.TODO(), m.listOptions)
+		if err != nil {
+			log.G().Error("failed to load resources", "gvr", gvr, "error", err)
+			return errMsg{err}
+		}
+
+		m.resourceWatcher = w
+
+		go func() {
+			for e := range w.ResultChan() {
+				obj, ok := e.Object.(*unstructured.Unstructured)
+				if !ok {
+					panic(fmt.Sprintf("did not get unstructured, got %T", e.Object))
+				}
+
+				_, index, _ := lo.FindIndexOf(m.resources, func(r k8s.OrderedResourceFields) bool {
+					return lo.IndexOf(r, obj.GetName()) != -1 && lo.IndexOf(r, obj.GetNamespace()) != -1
+				})
+
+				fields := lo.Map(resources.GetResourceView(gvr.Resource).Fields, func(field resources.ResourceViewField, _ int) string {
+					return lo.Must(field.Resolver.Resolve(obj))
+				})
+
+				switch e.Type {
+				case watch.Added:
+					if index == -1 {
+						m.resources = append(m.resources, fields)
+
+						// TODO: this is expensive, but we can find cheaper
+						// or better alternative later.
+						var (
+							nameIndex, _      = k8s.NameColumn(m.table.Columns())
+							namespaceIndex, _ = k8s.NamespaceColumn(m.table.Columns())
+						)
+
+						// TODO: this is how kubernetes resources are
+						// assumed to be sorted. i.e. by name and namespace.
+						sortIndex := func(index int) func(int, int) bool {
+							return func(i, j int) bool { return strings.Compare(m.resources[i][index], m.resources[j][index]) < 0 }
+						}
+						sort.Slice(m.resources, sortIndex(nameIndex))
+						sort.Slice(m.resources, sortIndex(namespaceIndex))
+					}
+				case watch.Modified:
+					lo.Assert(index != -1, "cant update non-existing item")
+					m.resources[index] = fields
+				case watch.Deleted:
+					lo.Assert(index != -1, "cant delete non-existing item")
+					m.resources = slices.Delete(m.resources, index, index+1)
+				}
+
+				for !m.tryQueueTableUpdate() {
+					// keep trying to queue until succeeds.
+					// TODO: handle better and maybe update api.
+				}
+			}
+		}()
+
+		return nil
 	}
 }
 

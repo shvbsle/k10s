@@ -70,7 +70,7 @@ func (c *Client) Dynamic() dynamic.Interface {
 	if c.clientset == nil {
 		return &disconnectedDynamic{}
 	}
-	return dynamic.New(c.clientset.Discovery().RESTClient())
+	return dynamic.NewForConfigOrDie(c.config)
 }
 
 func (c *Client) testConnection() bool {
@@ -171,11 +171,10 @@ func (c *Client) GetClusterInfo() (*ClusterInfo, error) {
 func getKubeConfig() (*rest.Config, error) {
 	// Try in-cluster config first
 	config, err := rest.InClusterConfig()
-	if err == nil {
-		return config, nil
+	if err != nil {
+		config, err = clientcmd.BuildConfigFromFlags("", clientcmd.NewDefaultClientConfigLoadingRules().GetDefaultFilename())
 	}
-
-	return clientcmd.BuildConfigFromFlags("", clientcmd.NewDefaultClientConfigLoadingRules().GetDefaultFilename())
+	return config, err
 }
 
 // ListContainersForPod retrieves all containers (init and regular) for a specific pod.
