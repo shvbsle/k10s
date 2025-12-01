@@ -6,22 +6,12 @@ import (
 	"text/template"
 
 	"github.com/shvbsle/k10s/internal/k8s"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
-var resolverMap map[string]func(unstructured.Unstructured) (string, error) = map[string]func(unstructured.Unstructured) (string, error){
-	"age": func(object unstructured.Unstructured) (string, error) {
+var resolverMap = map[string]func(*unstructured.Unstructured) (string, error){
+	"age": func(object *unstructured.Unstructured) (string, error) {
 		return k8s.FormatAge(object.GetCreationTimestamp().Time), nil
-	},
-	"podStatus": func(object unstructured.Unstructured) (string, error) {
-		pod := &corev1.Pod{}
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(object.UnstructuredContent(), pod); err != nil {
-			return "", err
-		}
-		// TODO: fixup
-		return string(pod.Status.Conditions[0].Status), nil
 	},
 }
 
@@ -40,7 +30,7 @@ type Resolver struct {
 	CELExpression string `json:"cel"`
 }
 
-func (r Resolver) Resolve(object unstructured.Unstructured) (string, error) {
+func (r Resolver) Resolve(object *unstructured.Unstructured) (string, error) {
 	// the first successful resolution is used, with the priority on sources
 	// being dictated by the ordering below.
 

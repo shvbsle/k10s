@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/paginator"
 	"github.com/charmbracelet/bubbles/table"
@@ -21,6 +22,7 @@ import (
 	"github.com/shvbsle/k10s/internal/tui/resources"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 // Version is the current version of k10s.
@@ -50,10 +52,12 @@ type Model struct {
 	commandSuggester cli.Suggester
 	commandHistory   cli.History
 	keys             keyMap
+	updateTableChan  chan struct{}
 
 	// cluster info and state
 	k8sClient         *k8s.Client
 	currentGVR        schema.GroupVersionResource
+	resourceWatcher   watch.Interface
 	resources         []k8s.OrderedResourceFields
 	listOptions       metav1.ListOptions
 	clusterInfo       *k8s.ClusterInfo
@@ -73,6 +77,17 @@ type Model struct {
 	pluginRegistry    *plugins.Registry
 	pluginToLaunch    plugins.Plugin
 }
+
+func (m *Model) tryQueueTableUpdate() bool {
+	select {
+	case m.updateTableChan <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+type updateTableMsg struct{}
 
 type errMsg struct{ err error }
 
@@ -189,6 +204,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 		commandInput:     ti,
 		help:             h,
 		keys:             keys,
+		updateTableChan:  make(chan struct{}, 1000), // can only queue 1000
 		viewMode:         ViewModeNormal,
 		currentGVR:       schema.GroupVersionResource{Resource: k8s.ResourcePods},
 		clusterInfo:      clusterInfo,
@@ -226,13 +242,17 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 // Init initializes the TUI model and returns the initial command to run.
 // It attempts to load pods if the client is connected.
 func (m *Model) Init() tea.Cmd {
+	var cmds []tea.Cmd
+
+	// bootstrap the update table event loop.
+	cmds = append(cmds, func() tea.Msg { return updateTableMsg{} })
+
 	// Only try to load resources if connected
 	if m.isConnected() {
-		return tea.Batch(
-			m.loadResources(k8s.ResourcePods),
-		)
+		cmds = append(cmds, m.loadResources(k8s.ResourcePods))
 	}
-	return nil
+
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) GetPluginToLaunch() plugins.Plugin {
@@ -269,6 +289,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case updateTableMsg:
+		return m, func() tea.Msg {
+			// block on someone sending the update message.
+			<-m.updateTableChan
+			// run the necessary table view update calls.
+			m.updateColumns(m.viewWidth)
+			m.updateTableData()
+			// recursively send the update message to keep the request queued.
+			return updateTableMsg{}
+		}
 	case tea.WindowSizeMsg:
 		m.viewWidth = msg.Width
 		m.viewHeight = msg.Height
@@ -304,14 +334,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateColumns(m.viewWidth)
 		m.updateTableData()
 
-		return m, func() tea.Msg {
-			return tea.ClearScreen()
-		}
+		return m, func() tea.Msg { return tea.ClearScreen() }
 
 	case resourcesLoadedMsg:
 		m.resources = msg.resources
 		m.logLines = nil // Clear log lines when loading resources
 
+		// cleanup the resource watcher when we switch to a new resource view.
+		if m.currentGVR != msg.gvr && m.resourceWatcher != nil {
+			m.resourceWatcher.Stop()
+			m.resourceWatcher = nil
+		}
 		m.currentGVR = msg.gvr
 		m.currentNamespace = msg.namespace
 		m.listOptions = msg.listOptions
@@ -323,7 +356,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateTableData()
 		m.table.SetCursor(0)
 
-		return m, nil
+		return m, m.watchResources(msg.gvr, msg.namespace)
 
 	case logsLoadedMsg:
 		m.logLines = msg.logLines
