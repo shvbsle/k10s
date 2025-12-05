@@ -5,14 +5,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/help"
-
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/paginator"
-	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/paginator"
+	"charm.land/bubbles/v2/table"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
 	"github.com/samber/lo"
 	"github.com/shvbsle/k10s/internal/config"
 	"github.com/shvbsle/k10s/internal/k8s"
@@ -135,7 +135,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 	ti := textinput.New()
 	ti.Placeholder = "Enter command..."
 	ti.CharLimit = 100
-	ti.Width = 50
+	ti.SetWidth(50)
 
 	// Initial columnMap for pods (default resource type)
 	columns := resources.GetColumns(100, k8s.ResourcePods)
@@ -163,8 +163,8 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 	p := paginator.New()
 	p.Type = paginator.Dots
 	p.PerPage = initialHeight
-	p.ActiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "235", Dark: "252"}).Render("•")
-	p.InactiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "250", Dark: "238"}).Render("•")
+	p.ActiveDot = lipgloss.NewStyle().Foreground(compat.AdaptiveColor{Light: lipgloss.Color("235"), Dark: lipgloss.Color("252")}).Render("•")
+	p.InactiveDot = lipgloss.NewStyle().Foreground(compat.AdaptiveColor{Light: lipgloss.Color("250"), Dark: lipgloss.Color("238")}).Render("•")
 
 	// Works even when disconnected
 	var clusterInfo *k8s.ClusterInfo
@@ -722,11 +722,14 @@ func (m *Model) isConnected() bool {
 	return m.k8sClient != nil && m.k8sClient.IsConnected()
 }
 
-// View renders the current state of the TUI to a string.
-// It implements the tea.Model interface for Bubble Tea.
-func (m *Model) View() string {
+// View renders the current state of the TUI.
+// It implements the tea.Model interface for Bubble Tea v2.
+func (m *Model) View() tea.View {
 	if !m.ready {
-		return "Initializing k10s..."
+		v := tea.NewView("Initializing k10s...")
+		v.AltScreen = true
+		v.MouseMode = tea.MouseModeCellMotion
+		return v
 	}
 
 	var b strings.Builder
@@ -834,7 +837,10 @@ func (m *Model) View() string {
 		output += "\n" + commandSuccessContent + "\n"
 	}
 
-	return output
+	v := tea.NewView(output)
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	return v
 }
 
 // renderBreadcrumb renders the navigation breadcrumb showing the hierarchy path.

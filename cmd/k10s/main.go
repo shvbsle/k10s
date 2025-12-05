@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/shvbsle/k10s/internal/config"
 	"github.com/shvbsle/k10s/internal/k8s"
 	"github.com/shvbsle/k10s/internal/log"
@@ -84,8 +84,6 @@ func main() {
 	for {
 		p := tea.NewProgram(
 			tui.New(cfg, client, pluginRegistry),
-			tea.WithAltScreen(),
-			tea.WithMouseCellMotion(),
 		)
 
 		finalModel, err := p.Run()

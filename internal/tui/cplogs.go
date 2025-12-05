@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/shvbsle/k10s/internal/k8s"
 	"github.com/shvbsle/k10s/internal/log"
 )

@@ -2,10 +2,11 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/table"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 	"github.com/shvbsle/k10s/internal/config"
@@ -495,7 +496,7 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 }
 
 // buildTopBorderWithTitle creates a top border with a centered title.
-func (m *Model) buildTopBorderWithTitle(title string, width int, borderColor lipgloss.Color, titleStyle lipgloss.Style) string {
+func (m *Model) buildTopBorderWithTitle(title string, width int, borderColor color.Color, titleStyle lipgloss.Style) string {
 	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
 
 	// Calculate centering - leftDashes + titleLen + rightDashes = width
