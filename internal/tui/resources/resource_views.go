@@ -32,6 +32,14 @@ func init() {
 }
 
 func GetColumns(totalWidth int, resource k8s.ResourceType) []table.Column {
+	// Special handling for contexts view
+	if resource == "contexts" {
+		return []table.Column{
+			{Title: "Context", Width: int(float32(totalWidth) * 0.8)},
+			{Title: "Current", Width: int(float32(totalWidth) * 0.2)},
+		}
+	}
+
 	var columns []table.Column
 	for _, field := range GetResourceView(resource).Fields {
 		columns = append(columns, table.Column{

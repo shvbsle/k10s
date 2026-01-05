@@ -177,6 +177,62 @@ func getKubeConfig() (*rest.Config, error) {
 	return config, err
 }
 
+// GetAvailableContexts retrieves all available Kubernetes contexts from the kubeconfig.
+// Returns a list of context names, the current context name, and any error encountered.
+func (c *Client) GetAvailableContexts() ([]string, string, error) {
+	config := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(clientcmd.NewDefaultClientConfigLoadingRules(), nil)
+
+	rawConfig, err := config.RawConfig()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	contexts := make([]string, 0, len(rawConfig.Contexts))
+	for name := range rawConfig.Contexts {
+		contexts = append(contexts, name)
+	}
+
+	return contexts, rawConfig.CurrentContext, nil
+}
+
+// SwitchContext switches to the specified Kubernetes context and reconnects the client.
+// Returns an error if the context doesn't exist or if reconnection fails.
+func (c *Client) SwitchContext(contextName string) error {
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	configOverrides := &clientcmd.ConfigOverrides{
+		CurrentContext: contextName,
+	}
+
+	config := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
+
+	// Verify the context exists
+	rawConfig, err := config.RawConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	if _, exists := rawConfig.Contexts[contextName]; !exists {
+		return fmt.Errorf("context %s not found in kubeconfig", contextName)
+	}
+
+	// Update the kubeconfig file to persist the context switch
+	rawConfig.CurrentContext = contextName
+	if err := clientcmd.ModifyConfig(loadingRules, rawConfig, false); err != nil {
+		return fmt.Errorf("failed to update kubeconfig: %w", err)
+	}
+
+	// Get new config for the switched context
+	newConfig, err := config.ClientConfig()
+	if err != nil {
+		return fmt.Errorf("failed to build client config for context %s: %w", contextName, err)
+	}
+
+	// Update client config and reconnect
+	c.config = newConfig
+
+	return c.Reconnect()
+}
+
 // ListContainersForPod retrieves all containers (init and regular) for a specific pod.
 // Returns an error if the client is not connected or if the API request fails.
 func (c *Client) ListContainersForPod(podName, namespace string) ([]OrderedResourceFields, error) {
