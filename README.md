@@ -3,6 +3,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.24%2B-00ADD8.svg)](https://golang.org/)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-1.25%2B-326ce5.svg)](https://kubernetes.io/)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/rngaJustFD)
 
 🙀 A modern, pretty TUI for Kubernetes, tuned for AI Hyperscaler clusters. 
 
@@ -294,6 +295,21 @@ make fmt
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Community
+
+Join the k10s community on Discord to:
+- 💬 Get help and support
+- 🚀 Share your k10s workflows and configurations
+- 🐛 Report bugs and request features
+- 🤝 Connect with other Kubernetes enthusiasts
+- 📢 Stay updated on the latest developments
+
+[![Join our Discord](https://img.shields.io/badge/Discord-Join%20k10s.dev-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/rngaJustFD)
+
+**Discord:** [https://discord.gg/rngaJustFD](https://discord.gg/rngaJustFD)
+
+We'd love to hear from you!
 
 ## Releasing
 
