@@ -177,8 +177,12 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 
 	// Works even when disconnected
 	var clusterInfo *k8s.ClusterInfo
+	defaultNamespace := metav1.NamespaceAll
 	if client != nil {
 		clusterInfo, _ = client.GetClusterInfo()
+		if clusterInfo != nil && clusterInfo.Namespace != "" {
+			defaultNamespace = clusterInfo.Namespace
+		}
 	}
 
 	keys := newKeyMap()
@@ -217,7 +221,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 		viewMode:         ViewModeNormal,
 		currentGVR:       schema.GroupVersionResource{Resource: k8s.ResourcePods},
 		clusterInfo:      clusterInfo,
-		currentNamespace: metav1.NamespaceAll,
+		currentNamespace: defaultNamespace,
 		commandSuggester: cli.ParseSuggestionTree(
 			lo.Assign(
 				// built-ins
