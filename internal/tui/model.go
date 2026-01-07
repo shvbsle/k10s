@@ -124,6 +124,15 @@ type resourceDescribedMsg struct {
 	gvr          schema.GroupVersionResource
 }
 
+type contextsLoadedMsg struct {
+	contexts []k8s.OrderedResourceFields
+}
+
+type contextSwitchedMsg struct {
+	contextName string
+	success     bool
+}
+
 // New creates a new TUI model with the provided configuration and Kubernetes client.
 // The client may be nil or disconnected - the TUI will handle this gracefully and
 // display appropriate status messages.
@@ -219,6 +228,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 					"reconnect": struct{}{},
 					"cp":        struct{}{},
 					"cplogs":    struct{}{},
+					"ctx":       struct{}{},
 				},
 				// kubernetes resources
 				map[string]any{
@@ -457,6 +467,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 		}
 
+	case contextsLoadedMsg:
+		m.resources = msg.contexts
+		m.logLines = nil
+		m.currentGVR = schema.GroupVersionResource{Resource: "contexts"}
+		m.currentNamespace = ""
+
+		m.updateKeysForResourceType()
+		m.updateColumns(m.viewWidth)
+		m.updateTableData()
+		m.table.SetCursor(0)
+
+		return m, nil
+
+	case contextSwitchedMsg:
+		if msg.success {
+			m.commandSuccess = fmt.Sprintf("Switched to context: %s", msg.contextName)
+			// Load pods in the new context
+			return m, tea.Batch(
+				tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+					return clearCommandSuccessMsg{}
+				}),
+				m.loadResourcesWithNamespace(
+					schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"},
+					m.currentNamespace,
+					metav1.ListOptions{},
+				),
+			)
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		switch m.viewMode {
 		case ViewModeCommand:
@@ -512,6 +552,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.commandSuccess = ""
 				return m, nil
 			case "enter":
+				// Special handling for contexts view
+				if m.currentGVR.Resource == "contexts" {
+					if len(m.resources) == 0 {
+						return m, nil
+					}
+					actualIdx := m.paginator.Page*m.paginator.PerPage + m.table.Cursor()
+					if actualIdx >= len(m.resources) {
+						return m, nil
+					}
+					selectedResource := m.resources[actualIdx]
+					// The context name is in the first column
+					if len(selectedResource) > 0 {
+						contextName := selectedResource[0]
+						return m, m.executeCtxCommand([]string{contextName})
+					}
+					return m, nil
+				}
+
 				if m.currentGVR.Resource == k8s.ResourceLogs {
 					return m, nil
 				}

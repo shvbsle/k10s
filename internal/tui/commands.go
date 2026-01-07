@@ -61,6 +61,8 @@ func (m *Model) executeCommand(command string) tea.Cmd {
 		// For cplogs, we need to preserve case in file paths, so use original args
 		args := lo.Drop(strings.Fields(originalCommand), 1)
 		return m.executeCplogsCommand(args)
+	case "ctx":
+		return m.executeCtxCommand(args)
 	}
 
 	return m.showCommandError(fmt.Sprintf("did not recognize command `%s`", originalCommand))
@@ -493,6 +495,68 @@ func (m *Model) describeCurrentResource() tea.Cmd {
 			resourceName: selectedName,
 			namespace:    selectedNamespace,
 			gvr:          m.currentGVR,
+		}
+	}
+}
+
+// executeCtxCommand handles the ctx command for listing and switching Kubernetes contexts.
+func (m *Model) executeCtxCommand(args []string) tea.Cmd {
+	// If no arguments, list all available contexts
+	if len(args) == 0 {
+		return func() tea.Msg {
+			contexts, currentContext, err := m.k8sClient.GetAvailableContexts()
+			if err != nil {
+				log.G().Error("failed to get contexts", "error", err)
+				return commandErrMsg{message: fmt.Sprintf("failed to get contexts: %v", err)}
+			}
+
+			// Sort contexts alphabetically
+			sort.Strings(contexts)
+
+			// Create rows for table display, marking the current context
+			rows := lo.Map(contexts, func(ctx string, _ int) k8s.OrderedResourceFields {
+				isCurrent := ""
+				if ctx == currentContext {
+					isCurrent = "*"
+				}
+				return k8s.OrderedResourceFields{
+					ctx,
+					isCurrent,
+				}
+			})
+
+			return contextsLoadedMsg{
+				contexts: rows,
+			}
+		}
+	}
+
+	// If argument provided, switch to that context
+	contextName := args[0]
+	return func() tea.Msg {
+		log.G().Info("switching context", "context", contextName)
+
+		err := m.k8sClient.SwitchContext(contextName)
+		if err != nil {
+			log.G().Error("failed to switch context", "error", err)
+			return commandErrMsg{message: fmt.Sprintf("failed to connect to context '%s': %v", contextName, err)}
+		}
+
+		log.G().Info("context switched successfully", "context", contextName)
+
+		// Reload cluster info after successful context switch
+		clusterInfo, err := m.k8sClient.GetClusterInfo()
+		if err != nil {
+			log.G().Warn("failed to get cluster info after context switch", "error", err)
+		} else {
+			m.clusterInfo = clusterInfo
+			m.currentNamespace = clusterInfo.Namespace
+		}
+
+		// Load pods in the new context
+		return contextSwitchedMsg{
+			contextName: contextName,
+			success:     true,
 		}
 	}
 }
