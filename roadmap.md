@@ -1,0 +1,25 @@
+# Things that need to be done
+
+## Core Features
+
+- [ ] **Search for pods/resources** ([#60](https://github.com/shvbsle/k10s/issues/60)) - Triggered by `/` keybinding. Opens a search box with live filtering - as the user types, the current view updates in real-time to show matching results
+- [ ] **Switch between cluster contexts** ([#61](https://github.com/shvbsle/k10s/issues/61)) - Triggered by `:ctx` in command mode. Opens a context selector to switch between different kubeconfig contexts without leaving the TUI
+- [ ] **Edit manifests** ([#62](https://github.com/shvbsle/k10s/issues/62)) - Triggered by `e` keybinding when cursor is on any resource. Opens the resource manifest in the user's default editor (e.g., vim). Saving and closing the editor automatically applies the changes to the cluster
+- [ ] **Describe output for resources** ([#63](https://github.com/shvbsle/k10s/issues/63)) - Triggered by `d` keybinding when cursor is on any resource. Renders `kubectl describe` output for the selected resource
+- [ ] **Syntax highlighting for describe output** ([#64](https://github.com/shvbsle/k10s/issues/64)) - Add syntax highlighting to the describe output view for better readability
+- [ ] **SSH into containers** ([#65](https://github.com/shvbsle/k10s/issues/65)) - Triggered by `s` keybinding when cursor is on any resource. Equivalent to `kubectl exec -it <pod> -- /bin/sh`
+- [ ] **Logs shortcut** ([#66](https://github.com/shvbsle/k10s/issues/66)) - Triggered by `l` keybinding to display logs for selected pod/container
+- [ ] **Real-time logs** ([#67](https://github.com/shvbsle/k10s/issues/67)) - Stream logs in real-time with auto-scroll and filtering
+
+## Developer Experience
+
+- [ ] **Faster builds + tests** ([#68](https://github.com/shvbsle/k10s/issues/68)) - Optimize build pipeline and test execution time
+
+## User Experience
+
+- [ ] **Help page** ([#69](https://github.com/shvbsle/k10s/issues/69)) - Triggered by `?` keybinding. Shows all available commands and keybindings
+- [ ] **Shortcuts/profiles for keybindings** ([#70](https://github.com/shvbsle/k10s/issues/70)) - Customizable keybinding profiles (similar to nvim configuration)
+
+## Branding
+
+- [ ] **Design k10s logo** ([#71](https://github.com/shvbsle/k10s/issues/71)) - Create a logo for the project

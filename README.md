@@ -296,6 +296,10 @@ make fmt
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
+### Roadmap
+
+Check out our [roadmap.md](roadmap.md) for a list of planned features and improvements. This is a great place to find tasks to pick up if you're looking to contribute!
+
 ## Community
 
 Join the k10s community on Discord to:
