@@ -13,7 +13,7 @@ func (m *Model) renderTopHeader(b *strings.Builder) {
 }
 
 // renderMinimalHeader shows a clean 3-row header matching the logo height.
-// Column 1: Context, Cluster, k10s Ver
+// Column 1: Context, K8s Ver, k10s Ver
 // Column 2: Key hints (?, :, esc)
 // Column 3: Logo (kittens)
 func (m *Model) renderMinimalHeader(b *strings.Builder) {
@@ -35,7 +35,7 @@ func (m *Model) renderMinimalHeader(b *strings.Builder) {
 	var infoLines [3]string
 	if m.clusterInfo != nil {
 		infoLines[0] = labelStyle.Render("Context: ") + valueStyle.Render(m.clusterInfo.Context)
-		infoLines[1] = labelStyle.Render("Cluster: ") + valueStyle.Render(m.clusterInfo.Cluster)
+		infoLines[1] = labelStyle.Render("K8s:     ") + valueStyle.Render(m.clusterInfo.K8sVersion)
 		infoLines[2] = labelStyle.Render("k10s:    ") + valueStyle.Render(Version)
 	} else {
 		infoLines[0] = valueStyle.Render("disconnected")

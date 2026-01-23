@@ -342,8 +342,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// - 1 line: initial newline
 			// - 5 lines: top header (3) + spacing (2)
 			// - 4 lines: table borders/column headers/separator
-			// - 4 lines: command palette area + padding + buffer
-			headerHeight = 14
+			// - 3 lines: command palette area + spacing + buffer
+			headerHeight = 13
 		} else {
 			// Fixed page size: larger header for pagination display
 			baseHeaderHeight := 20
@@ -909,13 +909,9 @@ func (m *Model) View() tea.View {
 			m.renderBreadcrumb(&b)
 		}
 
-		// Render pagination based on configured style (more compact for logs views)
+		// Render pagination (compact: single newline before)
 		if m.getTotalItems() > m.paginator.PerPage {
-			if m.currentGVR.Resource == k8s.ResourceLogs {
-				b.WriteString("\n") // Single newline for logs
-			} else {
-				b.WriteString("\n\n") // Double newline for resource lists
-			}
+			b.WriteString("\n")
 			m.renderPagination(&b)
 		}
 	}
