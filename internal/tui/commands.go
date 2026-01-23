@@ -222,7 +222,10 @@ func (m *Model) watchResources(gvr schema.GroupVersionResource, namespace string
 			for e := range w.ResultChan() {
 				obj, ok := e.Object.(*unstructured.Unstructured)
 				if !ok {
-					panic(fmt.Sprintf("did not get unstructured, got %T", e.Object))
+					// Watch was closed or returned an error status (e.g., during context switch)
+					// This is normal behavior - just exit the goroutine gracefully
+					log.G().Debug("watch received non-unstructured object, stopping", "type", fmt.Sprintf("%T", e.Object))
+					return
 				}
 
 				_, index, _ := lo.FindIndexOf(m.resources, func(r k8s.OrderedResourceFields) bool {
