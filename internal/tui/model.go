@@ -333,13 +333,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.describeViewport.SetSize(msg.Width-2, max(msg.Height-describeHeaderHeight, 10))
 
-		// Dynamic header height: 20 lines base, adjusted for very tall/short terminals
-		baseHeaderHeight := 20
-		headerHeight := baseHeaderHeight
-		if m.viewHeight > 50 {
-			headerHeight = 22
-		} else if m.viewHeight < 30 {
-			headerHeight = 15
+		// Calculate header height based on page_size setting
+		// When auto (default): minimize header to extend table to command palette
+		// When fixed: use larger header for comfortable viewing with pagination
+		var headerHeight int
+		if m.config.MaxPageSize == config.AutoPageSize || m.config.MaxPageSize == 0 {
+			// Auto mode: account for all non-data-row content
+			// - 1 line: initial newline
+			// - 5 lines: top header (3) + spacing (2)
+			// - 4 lines: table borders/column headers/separator
+			// - 4 lines: command palette area + padding + buffer
+			headerHeight = 14
+		} else {
+			// Fixed page size: larger header for pagination display
+			baseHeaderHeight := 20
+			headerHeight = baseHeaderHeight
+			if m.viewHeight > 50 {
+				headerHeight = 22
+			} else if m.viewHeight < 30 {
+				headerHeight = 15
+			}
 		}
 
 		tableHeight := max(m.viewHeight-headerHeight, 5)
