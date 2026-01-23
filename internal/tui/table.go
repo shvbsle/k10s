@@ -320,7 +320,9 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 		tableWidth += col.Width
 	}
 	// Add spacing between columns (1 space between each column)
-	tableWidth += len(columns) - 1
+	if len(columns) > 1 {
+		tableWidth += len(columns) - 1
+	}
 
 	// Build custom top border with centered title
 	topBorder := m.buildTopBorderWithTitle(headerText, tableWidth, borderColor, headerStyle)
@@ -336,6 +338,9 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 			}
 			// Truncate or pad to exact width
 			title := col.Title
+			if col.Width <= 0 {
+				continue
+			}
 			if len(title) > col.Width {
 				title = title[:col.Width]
 			} else if len(title) < col.Width {
@@ -407,6 +412,7 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 		onStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
 		offStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 		labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+		hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Italic(true)
 
 		fullscreenStatus := offStyle.Render("OFF")
 		if m.describeView.Fullscreen {
@@ -423,21 +429,30 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 			lineNumsStatus = onStyle.Render("ON")
 		}
 
-		toggleLine := fmt.Sprintf(" %s %s %s %s %s %s",
+		togglePart := fmt.Sprintf(" %s %s %s %s %s %s",
 			labelStyle.Render("[Fullscreen:"),
 			fullscreenStatus+labelStyle.Render("]"),
 			labelStyle.Render("[Wrap:"),
 			wrapStatus+labelStyle.Render("]"),
-			labelStyle.Render("[Show Lines:"),
+			labelStyle.Render("[Lines:"),
 			lineNumsStatus+labelStyle.Render("]"),
 		)
 
-		// Pad or truncate to exact table width using ANSI-aware functions
-		toggleLineLen := lipgloss.Width(toggleLine)
-		if toggleLineLen > tableWidth {
+		hintPart := hintStyle.Render("esc to go back ")
+
+		// Calculate spacing between toggle and hint
+		toggleLen := lipgloss.Width(togglePart)
+		hintLen := lipgloss.Width(hintPart)
+		spacing := tableWidth - toggleLen - hintLen
+		if spacing < 1 {
+			spacing = 1
+		}
+
+		toggleLine := togglePart + strings.Repeat(" ", spacing) + hintPart
+
+		// Truncate if still too long
+		if lipgloss.Width(toggleLine) > tableWidth {
 			toggleLine = ansi.Truncate(toggleLine, tableWidth, "…")
-		} else if toggleLineLen < tableWidth {
-			toggleLine += strings.Repeat(" ", tableWidth-toggleLineLen)
 		}
 
 		b.WriteString(borderStyle.Render("│"))

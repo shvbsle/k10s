@@ -33,9 +33,9 @@ type DescribeViewState struct {
 // NewDescribeViewState creates a DescribeViewState with sensible defaults.
 func NewDescribeViewState() *DescribeViewState {
 	return &DescribeViewState{
-		Fullscreen:      false,
+		Fullscreen:      true,
 		WrapText:        false,
-		ShowLineNumbers: false,
+		ShowLineNumbers: true,
 	}
 }
 

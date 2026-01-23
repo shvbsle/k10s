@@ -77,6 +77,7 @@ type Model struct {
 	pluginRegistry    *plugins.Registry
 	pluginToLaunch    plugins.Plugin
 	helpModal         *HelpModal
+	describeViewport  *DescribeViewport
 }
 
 func (m *Model) tryQueueTableUpdate() bool {
@@ -252,6 +253,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 		describeView:      NewDescribeViewState(),
 		pluginRegistry:    registry,
 		helpModal:         NewHelpModal(),
+		describeViewport:      NewDescribeViewport(),
 	}
 }
 
@@ -321,6 +323,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		m.helpModal.SetSize(msg.Width, msg.Height)
 
+		// Update describe viewport size
+		// In fullscreen mode, skip top header so use more space
+		var describeHeaderHeight int
+		if m.describeView != nil && m.describeView.Fullscreen {
+			describeHeaderHeight = 2 // Just reserve space for command area
+		} else {
+			describeHeaderHeight = 7 // Top header (3 lines) + spacing (2) + command area (2)
+		}
+		m.describeViewport.SetSize(msg.Width-2, max(msg.Height-describeHeaderHeight, 10))
+
 		// Dynamic header height: 20 lines base, adjusted for very tall/short terminals
 		baseHeaderHeight := 20
 		headerHeight := baseHeaderHeight
@@ -334,13 +346,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table.SetHeight(tableHeight)
 
 		// Dynamic page size calculation:
-		// - Describe view always uses full tableHeight
 		// - If MaxPageSize is 0 (auto/default), use all available tableHeight
 		// - If MaxPageSize is set to a specific number, use it as a ceiling (but never exceed tableHeight)
-		if m.currentGVR.Resource == k8s.ResourceDescribe {
-			// Describe view always uses full height
-			m.paginator.PerPage = tableHeight
-		} else if m.config.MaxPageSize == config.AutoPageSize || m.config.MaxPageSize == 0 {
+		if m.config.MaxPageSize == config.AutoPageSize || m.config.MaxPageSize == 0 {
 			// Auto mode (default): use all available screen space
 			m.paginator.PerPage = tableHeight
 		} else {
@@ -409,24 +417,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update key bindings for describe view
 		m.updateKeysForResourceType()
-		m.updateColumns(m.viewWidth)
 
-		// Set pagination to use full table height for describe view
-		// Use the same header height calculation as in WindowSizeMsg
-		baseHeaderHeight := 20
-		headerHeight := baseHeaderHeight
-		if m.viewHeight > 50 {
-			headerHeight = 22
-		} else if m.viewHeight < 30 {
-			headerHeight = 15
+		// Set up the describe list with content
+		m.describeViewport.SetContent(msg.yamlContent, msg.resourceName, msg.namespace)
+		m.describeViewport.SetShowLineNumbers(m.describeView.ShowLineNumbers)
+
+		// Calculate available height for describe viewport
+		// In fullscreen mode, skip top header so use more space
+		// Reserve 2 lines for command palette area at bottom
+		var headerHeight int
+		if m.describeView.Fullscreen {
+			headerHeight = 2 // Just reserve space for command area
+		} else {
+			headerHeight = 7 // Top header (3 lines) + spacing (2) + command area (2)
 		}
-		tableHeight := max(m.viewHeight-headerHeight, 5)
-		m.paginator.PerPage = tableHeight
-
-		// Reset to first page
-		m.paginator.Page = 0
-		m.updateTableData()
-		m.table.SetCursor(0)
+		listHeight := max(m.viewHeight-headerHeight, 10)
+		m.describeViewport.SetSize(m.viewWidth-2, listHeight)
 
 		return m, nil
 
@@ -514,6 +520,43 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				// Pass to viewport for scrolling
 				m.helpModal, cmd = m.helpModal.Update(msg)
+				return m, cmd
+			}
+		}
+
+		// Handle describe view input - pass to describe viewport
+		// Only handle when NOT in command mode (let command mode handle its own input)
+		if m.currentGVR.Resource == k8s.ResourceDescribe && m.viewMode != ViewModeCommand {
+			switch msg.String() {
+			case "esc", "escape":
+				// Go back from describe view
+				memento := m.navigationHistory.Pop()
+				if memento != nil {
+					m.restoreFromMemento(memento)
+				} else {
+					return m, m.loadResources(k8s.ResourcePods)
+				}
+				return m, nil
+			case "?":
+				m.helpModal.SetContent(m.BuildHelpContent())
+				m.helpModal.Toggle()
+				return m, nil
+			case ":":
+				m.viewMode = ViewModeCommand
+				m.commandInput.Focus()
+				m.commandErr = ""
+				m.commandSuccess = ""
+				return m, nil
+			case "n":
+				// Toggle line numbers
+				m.describeViewport.ToggleLineNumbers()
+				m.describeView.ShowLineNumbers = m.describeViewport.ShowLineNumbers()
+				return m, nil
+			case "ctrl+c":
+				return m, tea.Quit
+			default:
+				// Pass other keys to the describe viewport for navigation
+				m.describeViewport, cmd = m.describeViewport.Update(msg)
 				return m, cmd
 			}
 		}
@@ -841,22 +884,27 @@ func (m *Model) View() tea.View {
 		}
 	}
 
-	m.renderTableWithHeader(&b)
+	// Render describe list view or regular table
+	if m.currentGVR.Resource == k8s.ResourceDescribe {
+		b.WriteString(m.describeViewport.View())
+	} else {
+		m.renderTableWithHeader(&b)
 
-	// Render breadcrumb navigation if we're in a drilled-down view
-	if m.navigationHistory.Len() > 0 {
-		b.WriteString("\n\n")
-		m.renderBreadcrumb(&b)
-	}
-
-	// Render pagination based on configured style (more compact for describe/logs views)
-	if m.getTotalItems() > m.paginator.PerPage {
-		if m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceLogs {
-			b.WriteString("\n") // Single newline for describe/logs
-		} else {
-			b.WriteString("\n\n") // Double newline for resource lists
+		// Render breadcrumb navigation if we're in a drilled-down view
+		if m.navigationHistory.Len() > 0 {
+			b.WriteString("\n\n")
+			m.renderBreadcrumb(&b)
 		}
-		m.renderPagination(&b)
+
+		// Render pagination based on configured style (more compact for logs views)
+		if m.getTotalItems() > m.paginator.PerPage {
+			if m.currentGVR.Resource == k8s.ResourceLogs {
+				b.WriteString("\n") // Single newline for logs
+			} else {
+				b.WriteString("\n\n") // Double newline for resource lists
+			}
+			m.renderPagination(&b)
+		}
 	}
 
 	// Calculate command palette height (if shown)
