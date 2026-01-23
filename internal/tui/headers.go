@@ -6,23 +6,21 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// renderTopHeader renders the appropriate header based on terminal height.
-// Three stages: Full (≥30 lines), Compact (20-29 lines), Minimal (<20 lines).
+// renderTopHeader renders a minimal header with just the logo and essential info.
+// Press ? to see full help and cluster information.
 func (m *Model) renderTopHeader(b *strings.Builder) {
-	// Stage 1 (Full) = >= 30: everything including CPU/MEM
-	// Stage 2 (Compact) = 20-30: 4 lines - info + help + kittens (no CPU/MEM)
-	// Stage 3 (Minimal) = < 20: just context + hint (future implementation)
-	if m.viewHeight < 30 {
-		m.renderCompactHeader(b)
-	} else {
-		m.renderFullHeader(b)
-	}
+	m.renderMinimalHeader(b)
 }
 
-// renderCompactHeader shows 4-line header: info + help + kittens (no CPU/MEM).
-func (m *Model) renderCompactHeader(b *strings.Builder) {
+// renderMinimalHeader shows a clean 3-row header matching the logo height.
+// Column 1: Context, Cluster, k10s Ver
+// Column 2: Key hints (?, :, esc)
+// Column 3: Logo (kittens)
+func (m *Model) renderMinimalHeader(b *strings.Builder) {
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 
 	statusColor := "46" // green
 	if !m.isConnected() {
@@ -33,18 +31,25 @@ func (m *Model) renderCompactHeader(b *strings.Builder) {
 		Bold(true).
 		Render("●")
 
-	// Build compact info (only 4 lines, no CPU/MEM)
-	var infoContent strings.Builder
+	// Column 1: Cluster info (3 rows)
+	var infoLines [3]string
 	if m.clusterInfo != nil {
-		infoContent.WriteString(labelStyle.Render("Context: ") + valueStyle.Render(m.clusterInfo.Context) + "\n")
-		infoContent.WriteString(labelStyle.Render("Cluster: ") + valueStyle.Render(m.clusterInfo.Cluster) + "\n")
-		infoContent.WriteString(labelStyle.Render("K10s Ver: ") + valueStyle.Render(Version))
+		infoLines[0] = labelStyle.Render("Context: ") + valueStyle.Render(m.clusterInfo.Context)
+		infoLines[1] = labelStyle.Render("Cluster: ") + valueStyle.Render(m.clusterInfo.Cluster)
+		infoLines[2] = labelStyle.Render("k10s:    ") + valueStyle.Render(Version)
+	} else {
+		infoLines[0] = valueStyle.Render("disconnected")
+		infoLines[1] = ""
+		infoLines[2] = labelStyle.Render("k10s: ") + valueStyle.Render(Version)
 	}
+	infoBlock := statusIndicator + " " + infoLines[0] + "\n  " + infoLines[1] + "\n  " + infoLines[2]
 
-	infoBlock := statusIndicator + " " + infoContent.String()
-	helpBlock := m.help.View(m)
+	// Column 2: Key hints (3 rows)
+	keyHints := keyStyle.Render("?") + hintStyle.Render(" help") + "\n" +
+		keyStyle.Render(":") + hintStyle.Render(" command") + "\n" +
+		keyStyle.Render("esc") + hintStyle.Render(" go back")
 
-	// Apply easter egg colors! 🎃🎄
+	// Column 3: Logo (kittens)
 	easterEgg := detectEasterEgg()
 	kitten1, kitten2 := getKittenStyles(m.config.Logo, easterEgg)
 	doubleKitten := lipgloss.JoinHorizontal(lipgloss.Top, kitten1, " ", kitten2)
@@ -52,143 +57,30 @@ func (m *Model) renderCompactHeader(b *strings.Builder) {
 	termWidth := max(m.viewWidth, 80)
 
 	infoBlockWidth := lipgloss.Width(infoBlock)
-	helpBlockWidth := lipgloss.Width(helpBlock)
+	keyHintsWidth := lipgloss.Width(keyHints)
 	doubleKittenWidth := lipgloss.Width(doubleKitten)
 
-	const minGap = 2
-	totalContentWidth := infoBlockWidth + helpBlockWidth + doubleKittenWidth + (minGap * 2)
+	const minGap = 4
+	totalContentWidth := infoBlockWidth + keyHintsWidth + doubleKittenWidth + (minGap * 2)
 
-	// Use natural widths if content fits, otherwise constrain with max widths
 	if totalContentWidth <= termWidth {
 		gap1 := minGap
-		gap2 := max(termWidth-infoBlockWidth-helpBlockWidth-doubleKittenWidth-gap1, minGap)
+		gap2 := max(termWidth-infoBlockWidth-keyHintsWidth-doubleKittenWidth-gap1, minGap)
 
 		header := lipgloss.JoinHorizontal(lipgloss.Top,
 			infoBlock,
 			strings.Repeat(" ", gap1),
-			helpBlock,
+			keyHints,
 			strings.Repeat(" ", gap2),
 			doubleKitten,
 		)
 		b.WriteString(header)
 	} else {
-		maxInfoWidth := int(float64(termWidth) * 0.25)
-		maxHelpWidth := int(float64(termWidth) * 0.45)
-		kittenSpace := doubleKittenWidth + minGap
-
-		if maxInfoWidth < 20 {
-			maxInfoWidth = 20
-		}
-		if maxHelpWidth < 30 {
-			maxHelpWidth = 30
-		}
-
-		infoStyled := lipgloss.NewStyle().MaxWidth(maxInfoWidth).Render(infoBlock)
-		helpStyled := lipgloss.NewStyle().MaxWidth(maxHelpWidth).Render(helpBlock)
-
-		actualInfoWidth := lipgloss.Width(infoStyled)
-		actualHelpWidth := lipgloss.Width(helpStyled)
-
-		remainingSpace := max(termWidth-actualInfoWidth-actualHelpWidth-kittenSpace, 0)
-
-		header := lipgloss.JoinHorizontal(lipgloss.Top,
-			infoStyled,
-			strings.Repeat(" ", minGap),
-			helpStyled,
-			strings.Repeat(" ", remainingSpace),
-			doubleKitten,
-		)
-		b.WriteString(header)
-	}
-}
-
-// renderFullHeader shows everything including kittens (for large terminals).
-func (m *Model) renderFullHeader(b *strings.Builder) {
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-
-	statusColor := "46" // green
-	if !m.isConnected() {
-		statusColor = "203" // red
-	}
-	statusIndicator := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(statusColor)).
-		Bold(true).
-		Render("●")
-
-	var infoContent strings.Builder
-	if m.clusterInfo != nil {
-		infoContent.WriteString(labelStyle.Render("Context: ") + valueStyle.Render(m.clusterInfo.Context) + "\n")
-		infoContent.WriteString(labelStyle.Render("Cluster: ") + valueStyle.Render(m.clusterInfo.Cluster) + "\n")
-		infoContent.WriteString(labelStyle.Render("K10s Ver: ") + valueStyle.Render(Version) + "\n")
-		infoContent.WriteString(labelStyle.Render("K8s Ver: ") + valueStyle.Render(m.clusterInfo.K8sVersion) + "\n")
-	}
-	if len(m.listOptions.FieldSelector) > 0 {
-		infoContent.WriteString(labelStyle.Render("FieldSelector: ") + valueStyle.Render(m.listOptions.FieldSelector) + "\n")
-	}
-	if len(m.listOptions.LabelSelector) > 0 {
-		infoContent.WriteString(labelStyle.Render("LabelSelector: ") + valueStyle.Render(m.listOptions.LabelSelector) + "\n")
-	}
-	infoContent.WriteString(labelStyle.Render("CPU: ") + errorStyle.Render("n/a") + "\n")
-	infoContent.WriteString(labelStyle.Render("MEM: ") + errorStyle.Render("n/a"))
-
-	infoBlock := statusIndicator + " " + infoContent.String()
-	helpBlock := m.help.View(m)
-
-	// Apply easter egg colors! 🎃🎄
-	easterEgg := detectEasterEgg()
-	kitten1, kitten2 := getKittenStyles(m.config.Logo, easterEgg)
-	doubleKitten := lipgloss.JoinHorizontal(lipgloss.Top, kitten1, " ", kitten2)
-
-	termWidth := max(m.viewWidth, 80)
-
-	infoBlockWidth := lipgloss.Width(infoBlock)
-	helpBlockWidth := lipgloss.Width(helpBlock)
-	doubleKittenWidth := lipgloss.Width(doubleKitten)
-
-	const minGap = 2
-	totalContentWidth := infoBlockWidth + helpBlockWidth + doubleKittenWidth + (minGap * 2)
-
-	// Use natural widths if content fits, otherwise constrain with max widths
-	if totalContentWidth <= termWidth {
-		gap1 := minGap
-		gap2 := max(termWidth-infoBlockWidth-helpBlockWidth-doubleKittenWidth-gap1, minGap)
-
+		// Constrained layout for narrow terminals - skip kittens
 		header := lipgloss.JoinHorizontal(lipgloss.Top,
 			infoBlock,
-			strings.Repeat(" ", gap1),
-			helpBlock,
-			strings.Repeat(" ", gap2),
-			doubleKitten,
-		)
-		b.WriteString(header)
-	} else {
-		maxInfoWidth := int(float64(termWidth) * 0.25)
-		maxHelpWidth := int(float64(termWidth) * 0.45)
-		kittenSpace := doubleKittenWidth + minGap
-
-		if maxInfoWidth < 20 {
-			maxInfoWidth = 20
-		}
-		if maxHelpWidth < 30 {
-			maxHelpWidth = 30
-		}
-
-		infoStyled := lipgloss.NewStyle().MaxWidth(maxInfoWidth).Render(infoBlock)
-		helpStyled := lipgloss.NewStyle().MaxWidth(maxHelpWidth).Render(helpBlock)
-
-		actualInfoWidth := lipgloss.Width(infoStyled)
-		actualHelpWidth := lipgloss.Width(helpStyled)
-
-		remainingSpace := max(termWidth-actualInfoWidth-actualHelpWidth-kittenSpace, 0)
-
-		header := lipgloss.JoinHorizontal(lipgloss.Top,
-			infoStyled,
 			strings.Repeat(" ", minGap),
-			helpStyled,
-			strings.Repeat(" ", remainingSpace),
-			doubleKitten,
+			keyHints,
 		)
 		b.WriteString(header)
 	}

@@ -76,6 +76,7 @@ type Model struct {
 	commandSuccess    string
 	pluginRegistry    *plugins.Registry
 	pluginToLaunch    plugins.Plugin
+	helpModal         *HelpModal
 }
 
 func (m *Model) tryQueueTableUpdate() bool {
@@ -250,6 +251,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 		logView:           NewLogViewState(),
 		describeView:      NewDescribeViewState(),
 		pluginRegistry:    registry,
+		helpModal:         NewHelpModal(),
 	}
 }
 
@@ -317,6 +319,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewWidth = msg.Width
 		m.viewHeight = msg.Height
 		m.ready = true
+		m.helpModal.SetSize(msg.Width, msg.Height)
 
 		// Dynamic header height: 20 lines base, adjusted for very tall/short terminals
 		baseHeaderHeight := 20
@@ -502,6 +505,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Handle help modal input first if visible
+		if m.helpModal.IsVisible() {
+			switch msg.String() {
+			case "?", "esc", "escape", "q":
+				m.helpModal.Hide()
+				return m, nil
+			default:
+				// Pass to viewport for scrolling
+				m.helpModal, cmd = m.helpModal.Update(msg)
+				return m, cmd
+			}
+		}
+
 		switch m.viewMode {
 		case ViewModeCommand:
 			switch msg.String() {
@@ -548,6 +564,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			// Handle keys explicitly to prevent double-processing
 			switch msg.String() {
+			case "?":
+				m.helpModal.SetContent(m.BuildHelpContent())
+				m.helpModal.Toggle()
+				return m, nil
 			case ":":
 				m.viewMode = ViewModeCommand
 				m.commandInput.Focus()
@@ -897,6 +917,11 @@ func (m *Model) View() tea.View {
 		output += "\n" + commandErrorContent + "\n"
 	} else if m.commandSuccess != "" {
 		output += "\n" + commandSuccessContent + "\n"
+	}
+
+	// Render help modal overlay if visible
+	if m.helpModal.IsVisible() {
+		output = m.helpModal.View()
 	}
 
 	v := tea.NewView(output)
