@@ -2,9 +2,12 @@ BINARY:=k10s
 PKG:=./...
 GO:=go
 
-.PHONY: all build run test lint fmt vet check snapshot release version tidy help
+.PHONY: all build run test lint fmt vet check snapshot release version tidy help dev
 
 all: build
+
+dev: ## Quick run for development (no checks, no tests)
+	$(GO) run ./cmd/k10s
 
 version: ## Display the current version
 	@cat VERSION
