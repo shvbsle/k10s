@@ -135,6 +135,15 @@ type contextSwitchedMsg struct {
 	success     bool
 }
 
+type namespaceLoadedMsg struct {
+	namespaces []k8s.OrderedResourceFields
+}
+
+type namespaceSwitchedMsg struct {
+	namespace string
+	success   bool
+}
+
 // New creates a new TUI model with the provided configuration and Kubernetes client.
 // The client may be nil or disconnected - the TUI will handle this gracefully and
 // display appropriate status messages.
@@ -211,6 +220,14 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 		return k8s.FormatGVR(gvr)
 	})
 
+	//fetch available namespaces to generate suggestions
+	availableNamespaces := []string{"all"}
+	if client != nil && client.IsConnected() {
+		if namespaces, err := client.GetAvailableNamespaces(); err == nil {
+			availableNamespaces = append(availableNamespaces, namespaces...)
+		}
+	}
+
 	return &Model{
 		config:           cfg,
 		k8sClient:        client,
@@ -235,6 +252,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 					"cp":        struct{}{},
 					"cplogs":    struct{}{},
 					"ctx":       struct{}{},
+					"ns":        availableNamespaces,
 				},
 				// kubernetes resources
 				map[string]any{
@@ -253,7 +271,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 		describeView:      NewDescribeViewState(),
 		pluginRegistry:    registry,
 		helpModal:         NewHelpModal(),
-		describeViewport:      NewDescribeViewport(),
+		describeViewport:  NewDescribeViewport(),
 	}
 }
 
@@ -523,6 +541,40 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case namespaceLoadedMsg:
+		m.resources = msg.namespaces
+		m.logLines = nil
+		m.currentGVR = schema.GroupVersionResource{Resource: "namespaces"}
+
+		m.updateKeysForResourceType()
+		m.updateColumns(m.viewWidth)
+		m.updateTableData()
+		m.table.SetCursor(0)
+
+		return m, nil
+
+	case namespaceSwitchedMsg:
+		if msg.success {
+			m.currentNamespace = msg.namespace
+			displayName := msg.namespace
+			if msg.namespace == metav1.NamespaceAll {
+				displayName = "all namespaces"
+			}
+			m.commandSuccess = fmt.Sprintf("Switched to namespace: %s", displayName)
+
+			return m, tea.Batch(
+				tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+					return clearCommandSuccessMsg{}
+				}),
+				m.loadResourcesWithNamespace(
+					schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"},
+					m.currentNamespace,
+					metav1.ListOptions{},
+				),
+			)
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// Handle help modal input first if visible
 		if m.helpModal.IsVisible() {
@@ -646,6 +698,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if len(selectedResource) > 0 {
 						contextName := selectedResource[0]
 						return m, m.executeCtxCommand([]string{contextName})
+					}
+					return m, nil
+				}
+
+				// Special handling for namespaces view
+				if m.currentGVR.Resource == "namespaces" {
+					if len(m.resources) == 0 {
+						return m, nil
+					}
+					actualIdx := m.paginator.Page*m.paginator.PerPage + m.table.Cursor()
+					if actualIdx >= len(m.resources) {
+						return m, nil
+					}
+					selectedResource := m.resources[actualIdx]
+					// The namespaces name is in the first column
+					if len(selectedResource) > 0 {
+						namespaceName := selectedResource[0]
+						return m, m.executeNsCommand([]string{namespaceName})
 					}
 					return m, nil
 				}

@@ -40,6 +40,13 @@ func GetColumns(totalWidth int, resource k8s.ResourceType) []table.Column {
 		}
 	}
 
+	if resource == "namespaces" {
+		return []table.Column{
+			{Title: "Namespace", Width: int(float32(totalWidth) * 0.8)},
+			{Title: "Current", Width: int(float32(totalWidth) * 0.2)},
+		}
+	}
+
 	var columns []table.Column
 	for _, field := range GetResourceView(resource).Fields {
 		columns = append(columns, table.Column{

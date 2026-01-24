@@ -63,6 +63,8 @@ func (m *Model) executeCommand(command string) tea.Cmd {
 		return m.executeCplogsCommand(args)
 	case "ctx":
 		return m.executeCtxCommand(args)
+	case "ns":
+		return m.executeNsCommand(args)
 	}
 
 	return m.showCommandError(fmt.Sprintf("did not recognize command `%s`", originalCommand))
@@ -562,4 +564,75 @@ func (m *Model) executeCtxCommand(args []string) tea.Cmd {
 			success:     true,
 		}
 	}
+}
+
+// executeNsCommand handles the ns command for listing and switching kubernetes namespaces.
+func (m *Model) executeNsCommand(args []string) tea.Cmd {
+	// if no args then show table with all namespaces
+	if len(args) == 0 {
+		return func() tea.Msg {
+			namespaces, err := m.k8sClient.GetAvailableNamespaces()
+			if err != nil {
+				log.G().Error("failed to get namespaces", "error", err)
+				return commandErrMsg{message: fmt.Sprintf("failed to get namespaces: %v", err)}
+			}
+
+			// Sort namespaces alphabetically
+			sort.Strings(namespaces)
+
+			// Create rows for table display, marking the current namespaces
+			rows := lo.Map(namespaces, func(ns string, _ int) k8s.OrderedResourceFields {
+				isCurrent := ""
+				if ns == m.currentNamespace {
+					isCurrent = "*"
+				}
+				return k8s.OrderedResourceFields{
+					ns,
+					isCurrent,
+				}
+			})
+
+			return namespaceLoadedMsg{
+				namespaces: rows,
+			}
+		}
+	}
+
+	// handle "all" argument
+	namespaceName := args[0]
+	if namespaceName == "all" {
+		return func() tea.Msg {
+			log.G().Info("switching to all namespaces")
+			return namespaceSwitchedMsg{
+				namespace: metav1.NamespaceAll,
+				success:   true,
+			}
+		}
+	}
+
+	// case where namespace arg is provided
+	// also gotta confirm that the namespace exists
+
+	return func() tea.Msg {
+		log.G().Info("switching namespace", "namespace", namespaceName)
+
+		exists, err := m.k8sClient.NamespaceExists(namespaceName)
+		if err != nil {
+			log.G().Warn("failed to check namespace", "error", err)
+			return commandErrMsg{message: fmt.Sprintf("failed to check namespace: %v", err)}
+		}
+
+		if !exists {
+			log.G().Warn("namespace not found", "namespace", namespaceName)
+			return commandErrMsg{message: fmt.Sprintf("namespace '%s' not found", namespaceName)}
+		}
+
+		log.G().Info("namespace switched successfully", "namespace", namespaceName)
+
+		return namespaceSwitchedMsg{
+			namespace: namespaceName,
+			success:   true,
+		}
+	}
+
 }
