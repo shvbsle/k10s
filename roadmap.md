@@ -10,6 +10,8 @@
 - [ ] **SSH into containers** ([#65](https://github.com/shvbsle/k10s/issues/65)) - Triggered by `s` keybinding when cursor is on any resource. Equivalent to `kubectl exec -it <pod> -- /bin/sh`
 - [ ] **Logs shortcut** ([#66](https://github.com/shvbsle/k10s/issues/66)) - Triggered by `l` keybinding to display logs for selected pod/container
 - [ ] **Real-time logs** ([#67](https://github.com/shvbsle/k10s/issues/67)) - Stream logs in real-time with auto-scroll and filtering
+- [x] **Switch namespaces** ([]()) - Use `:ns` command to switch between namespaces
+
 
 ## Developer Experience
 

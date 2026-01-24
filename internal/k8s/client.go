@@ -233,6 +233,43 @@ func (c *Client) SwitchContext(contextName string) error {
 	return c.Reconnect()
 }
 
+// TODO: get claude/ai to write the doc string
+func (c *Client) GetAvailableNamespaces() ([]string, error) {
+	if !c.isConnected || c.clientset == nil {
+		return nil, fmt.Errorf("not connected to cluster")
+	}
+
+	ctx := context.Background()
+
+	namespaceList, err := c.clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		c.markDisconnected()
+		return nil, fmt.Errorf("failed to list namespaces: %w", err)
+	}
+
+	namespaces := make([]string, 0, len(namespaceList.Items))
+	for _, ns := range namespaceList.Items {
+		namespaces = append(namespaces, ns.Name)
+	}
+
+	return namespaces, nil
+}
+
+// TODO: get claude/ai to write the doc string
+func (c *Client) NamespaceExists(name string) (bool, error) {
+	if !c.isConnected || c.clientset == nil {
+		return false, fmt.Errorf("not connected to cluster")
+	}
+
+	ctx := context.Background()
+	_, err := c.clientset.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return false, nil
+	}
+
+	return true, nil
+}
+
 // ListContainersForPod retrieves all containers (init and regular) for a specific pod.
 // Returns an error if the client is not connected or if the API request fails.
 func (c *Client) ListContainersForPod(podName, namespace string) ([]OrderedResourceFields, error) {
