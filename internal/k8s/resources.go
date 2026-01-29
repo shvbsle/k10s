@@ -25,6 +25,8 @@ const (
 	ResourceAPIResources ResourceType = "api-resources"
 	// ResourceDescribe represents the YAML description of a resource.
 	ResourceDescribe ResourceType = "describe"
+	// ResourceYaml represents the raw YAML manifest of a resource.
+	ResourceYaml ResourceType = "yaml"
 )
 
 // OrderedResourceFields represents a Kubernetes resource with common fields suitable for

@@ -126,6 +126,13 @@ type resourceDescribedMsg struct {
 	gvr          schema.GroupVersionResource
 }
 
+type resourceYamlMsg struct {
+	yamlContent  string
+	resourceName string
+	namespace    string
+	gvr          schema.GroupVersionResource
+}
+
 type contextsLoadedMsg struct {
 	contexts []k8s.OrderedResourceFields
 }
@@ -467,6 +474,34 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 
+	case resourceYamlMsg:
+		m.describeContent = msg.yamlContent
+		m.resources = nil // Clear resources when loading yaml view
+		m.logLines = nil  // Clear log lines when loading yaml view
+		m.currentGVR.Resource = k8s.ResourceYaml
+		m.currentNamespace = msg.namespace
+
+		// Update key bindings for yaml view
+		m.updateKeysForResourceType()
+
+		// Set up the describe viewport with YAML content (reusing the same viewport component)
+		m.describeViewport.SetContent(msg.yamlContent, msg.resourceName, msg.namespace)
+		m.describeViewport.SetShowLineNumbers(m.describeView.ShowLineNumbers)
+
+		// Calculate available height for yaml viewport
+		// In fullscreen mode, skip top header so use more space
+		// Reserve 2 lines for command palette area at bottom
+		var headerHeight int
+		if m.describeView.Fullscreen {
+			headerHeight = 2 // Just reserve space for command area
+		} else {
+			headerHeight = 7 // Top header (3 lines) + spacing (2) + command area (2)
+		}
+		listHeight := max(m.viewHeight-headerHeight, 10)
+		m.describeViewport.SetSize(m.viewWidth-2, listHeight)
+
+		return m, nil
+
 	case errMsg:
 		log.G().Error("error occurred", "error", msg.err)
 		m.err = msg.err
@@ -589,9 +624,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Handle describe view input - pass to describe viewport
+		// Handle describe/yaml view input - pass to viewport
 		// Only handle when NOT in command mode (let command mode handle its own input)
-		if m.currentGVR.Resource == k8s.ResourceDescribe && m.viewMode != ViewModeCommand {
+		if (m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceYaml) && m.viewMode != ViewModeCommand {
 			switch msg.String() {
 			case "esc", "escape":
 				// Go back from describe view
@@ -761,7 +796,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch m.currentGVR.Resource {
 				case k8s.ResourceLogs:
 					m.logView.Fullscreen = !m.logView.Fullscreen
-				case k8s.ResourceDescribe:
+				case k8s.ResourceDescribe, k8s.ResourceYaml:
 					m.describeView.Fullscreen = !m.describeView.Fullscreen
 				}
 				return m, nil
@@ -784,20 +819,34 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case k8s.ResourceLogs:
 					m.logView.WrapText = !m.logView.WrapText
 					m.updateTableData()
-				case k8s.ResourceDescribe:
+				case k8s.ResourceDescribe, k8s.ResourceYaml:
 					m.describeView.WrapText = !m.describeView.WrapText
 					m.updateTableData()
 				}
 				return m, nil
 			case "n":
-				if m.currentGVR.Resource == k8s.ResourceDescribe {
+				if m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceYaml {
 					m.describeView.ShowLineNumbers = !m.describeView.ShowLineNumbers
 					m.updateTableData()
 				}
 				return m, nil
 			case "y":
-				// Yank/copy selected row (if implemented in future)
-				return m, nil
+				// Show YAML for the currently selected resource
+				if m.currentGVR.Resource == k8s.ResourceLogs ||
+					m.currentGVR.Resource == k8s.ResourceDescribe ||
+					m.currentGVR.Resource == k8s.ResourceYaml ||
+					m.currentGVR.Resource == k8s.ResourceContainers ||
+					m.currentGVR.Resource == k8s.ResourceAPIResources {
+					return m, nil // Can't get yaml for these resource types
+				}
+				if !m.isConnected() {
+					m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
+					return m, nil
+				}
+				return m, m.commandWithPreflights(
+					m.getResourceYaml(),
+					m.requireConnection,
+				)
 			case "d":
 				// Describe the currently selected resource
 				if m.currentGVR.Resource == k8s.ResourceLogs ||
@@ -873,8 +922,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.table.GotoBottom()
 						m.logView.Autoscroll = true
 					}
-				case k8s.ResourceDescribe:
-					// For describe view, go to last page
+				case k8s.ResourceDescribe, k8s.ResourceYaml:
+					// For describe/yaml view, go to last page
 					if m.describeContent != "" {
 						lines := strings.Split(m.describeContent, "\n")
 						totalLines := len(lines)
@@ -944,9 +993,9 @@ func (m *Model) View() tea.View {
 
 	b.WriteString("\n")
 
-	// Skip top header if fullscreen is enabled for logs or describe
+	// Skip top header if fullscreen is enabled for logs, describe, or yaml
 	skipHeader := (m.logView != nil && m.logView.Fullscreen && m.currentGVR.Resource == k8s.ResourceLogs) ||
-		(m.describeView != nil && m.describeView.Fullscreen && m.currentGVR.Resource == k8s.ResourceDescribe)
+		(m.describeView != nil && m.describeView.Fullscreen && (m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceYaml))
 	if !skipHeader {
 		m.renderTopHeader(&b)
 		b.WriteString("\n\n")
@@ -967,8 +1016,8 @@ func (m *Model) View() tea.View {
 		}
 	}
 
-	// Render describe list view or regular table
-	if m.currentGVR.Resource == k8s.ResourceDescribe {
+	// Render describe/yaml view or regular table
+	if m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceYaml {
 		b.WriteString(m.describeViewport.View())
 	} else {
 		m.renderTableWithHeader(&b)

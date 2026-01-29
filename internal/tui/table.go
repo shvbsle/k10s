@@ -98,7 +98,7 @@ func wrapTextAtWordBoundary(text string, maxWidth int) []string {
 func (m *Model) updateTableData() {
 	if m.currentGVR.Resource == k8s.ResourceLogs && m.logLines != nil {
 		m.updateTableDataForLogs()
-	} else if m.currentGVR.Resource == k8s.ResourceDescribe && m.describeContent != "" {
+	} else if (m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceYaml) && m.describeContent != "" {
 		m.updateTableDataForDescribe()
 	} else {
 		m.updateTableDataForResources()
@@ -329,8 +329,8 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 	b.WriteString(topBorder)
 	b.WriteString("\n")
 
-	// Render column headers manually (skip for logs and describe views as they don't need columns)
-	if m.currentGVR.Resource != k8s.ResourceLogs && m.currentGVR.Resource != k8s.ResourceDescribe {
+	// Render column headers manually (skip for logs, describe, and yaml views as they don't need columns)
+	if m.currentGVR.Resource != k8s.ResourceLogs && m.currentGVR.Resource != k8s.ResourceDescribe && m.currentGVR.Resource != k8s.ResourceYaml {
 		headerLine := ""
 		for i, col := range columns {
 			if i > 0 {
@@ -407,8 +407,8 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 		b.WriteString("\n")
 	}
 
-	// Render toggle status for describe view
-	if m.currentGVR.Resource == k8s.ResourceDescribe {
+	// Render toggle status for describe/yaml view
+	if m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceYaml {
 		onStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
 		offStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 		labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))

@@ -338,7 +338,7 @@ func (m *Model) canDrillDown() bool {
 	switch m.currentGVR.Resource {
 	case k8s.ResourcePods, k8s.ResourceContainers:
 		return true
-	case k8s.ResourceLogs, k8s.ResourceDescribe, k8s.ResourceAPIResources:
+	case k8s.ResourceLogs, k8s.ResourceDescribe, k8s.ResourceYaml, k8s.ResourceAPIResources:
 		return false
 	}
 
@@ -496,6 +496,61 @@ func (m *Model) describeCurrentResource() tea.Cmd {
 		}
 
 		return resourceDescribedMsg{
+			yamlContent:  string(output),
+			resourceName: selectedName,
+			namespace:    selectedNamespace,
+			gvr:          m.currentGVR,
+		}
+	}
+}
+
+// getResourceYaml fetches and displays the YAML manifest for the selected resource.
+func (m *Model) getResourceYaml() tea.Cmd {
+	return func() tea.Msg {
+		if len(m.resources) == 0 {
+			return commandErrMsg{message: "no resource selected"}
+		}
+
+		actualIdx := m.paginator.Page*m.paginator.PerPage + m.table.Cursor()
+		if actualIdx >= len(m.resources) {
+			return commandErrMsg{message: "invalid selection"}
+		}
+
+		selectedResource := m.resources[actualIdx]
+
+		// Extract name and namespace from the selected row
+		var selectedName, selectedNamespace string
+		if nameIndex, ok := k8s.NameColumn(m.table.Columns()); ok {
+			selectedName = selectedResource[nameIndex]
+		}
+		if namespaceIndex, ok := k8s.NamespaceColumn(m.table.Columns()); ok {
+			selectedNamespace = selectedResource[namespaceIndex]
+		}
+
+		// Use the current namespace if no namespace column exists (cluster-scoped resources)
+		if selectedNamespace == "" {
+			selectedNamespace = m.currentNamespace
+		}
+
+		log.G().Info("getting yaml for resource", "gvr", m.currentGVR, "name", selectedName, "namespace", selectedNamespace)
+
+		// Use kubectl get -o yaml to get YAML manifest
+		var cmd *exec.Cmd
+		resourceType := m.currentGVR.Resource
+
+		if selectedNamespace != "" && selectedNamespace != metav1.NamespaceAll {
+			cmd = exec.Command("kubectl", "get", resourceType, selectedName, "-n", selectedNamespace, "-o", "yaml")
+		} else {
+			cmd = exec.Command("kubectl", "get", resourceType, selectedName, "-o", "yaml")
+		}
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			log.G().Error("failed to get resource yaml", "error", err, "output", string(output))
+			return errMsg{fmt.Errorf("failed to get resource yaml: %w\n%s", err, string(output))}
+		}
+
+		return resourceYamlMsg{
 			yamlContent:  string(output),
 			resourceName: selectedName,
 			namespace:    selectedNamespace,
