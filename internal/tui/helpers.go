@@ -38,7 +38,7 @@ func (m *Model) getTotalItems() int {
 	if m.currentGVR.Resource == k8s.ResourceLogs && m.logLines != nil {
 		return len(m.logLines)
 	}
-	if m.currentGVR.Resource == k8s.ResourceDescribe && m.describeContent != "" {
+	if (m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceYaml) && m.describeContent != "" {
 		return len(strings.Split(m.describeContent, "\n"))
 	}
 	return len(m.resources)
@@ -47,14 +47,15 @@ func (m *Model) getTotalItems() int {
 func (m *Model) updateKeysForResourceType() {
 	isLogs := m.currentGVR.Resource == k8s.ResourceLogs
 	isDescribe := m.currentGVR.Resource == k8s.ResourceDescribe
+	isYaml := m.currentGVR.Resource == k8s.ResourceYaml
 
-	// Enable/disable log-specific keys
-	m.keys.Fullscreen.SetEnabled(isLogs || isDescribe)
+	// Enable/disable view-specific keys
+	m.keys.Fullscreen.SetEnabled(isLogs || isDescribe || isYaml)
 	m.keys.Autoscroll.SetEnabled(isLogs)
 	m.keys.ToggleTime.SetEnabled(isLogs)
-	m.keys.WrapText.SetEnabled(isLogs || isDescribe)
+	m.keys.WrapText.SetEnabled(isLogs || isDescribe || isYaml)
 	m.keys.CopyLogs.SetEnabled(isLogs)
-	m.keys.ToggleLineNums.SetEnabled(isDescribe)
+	m.keys.ToggleLineNums.SetEnabled(isDescribe || isYaml)
 
 	// Enable namespace keys only for namespace-aware resources
 	canUseNS := m.isNamespaced(m.currentGVR.Resource)

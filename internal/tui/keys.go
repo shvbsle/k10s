@@ -25,6 +25,7 @@ type keyMap struct {
 	ToggleLineNums key.Binding
 	// Resource actions
 	Describe key.Binding
+	YamlView key.Binding
 }
 
 // newKeyMap creates a new keyMap with all bindings configured
@@ -105,6 +106,10 @@ func newKeyMap() keyMap {
 		Describe: key.NewBinding(
 			key.WithKeys("d"),
 			key.WithHelp("d", "describe"),
+		),
+		YamlView: key.NewBinding(
+			key.WithKeys("y"),
+			key.WithHelp("y", "yaml"),
 		),
 	}
 }
