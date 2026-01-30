@@ -133,6 +133,11 @@ type resourceYamlMsg struct {
 	gvr          schema.GroupVersionResource
 }
 
+type resourceEditedMsg struct {
+	resourceName string
+	resourceType string
+}
+
 type contextsLoadedMsg struct {
 	contexts []k8s.OrderedResourceFields
 }
@@ -529,6 +534,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.commandSuccess = ""
 		return m, nil
 
+	case resourceEditedMsg:
+		// Show success message
+		m.commandSuccess = fmt.Sprintf("Successfully edited %s/%s", msg.resourceType, msg.resourceName)
+		// Reload the current resources to reflect any changes
+		return m, tea.Batch(
+			m.loadResourcesWithNamespace(m.currentGVR, m.currentNamespace, metav1.ListOptions{}),
+			tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+				return clearCommandSuccessMsg{}
+			}),
+		)
+
 	case launchPluginMsg:
 		m.pluginToLaunch = msg.plugin
 		return m, tea.Quit
@@ -847,6 +863,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.getResourceYaml(),
 					m.requireConnection,
 				)
+			case "e":
+				// Edit the currently selected resource
+				if m.currentGVR.Resource == k8s.ResourceLogs ||
+					m.currentGVR.Resource == k8s.ResourceDescribe ||
+					m.currentGVR.Resource == k8s.ResourceYaml ||
+					m.currentGVR.Resource == k8s.ResourceContainers ||
+					m.currentGVR.Resource == k8s.ResourceAPIResources {
+					return m, nil // Can't edit these resource types
+				}
+				if !m.isConnected() {
+					m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
+					return m, nil
+				}
+				// Edit command directly returns tea.ExecProcess, no need for commandWithPreflights
+				return m, m.editCurrentResource()
 			case "d":
 				// Describe the currently selected resource
 				if m.currentGVR.Resource == k8s.ResourceLogs ||

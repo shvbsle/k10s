@@ -4,7 +4,7 @@
 
 - [ ] **Search for pods/resources** ([#60](https://github.com/shvbsle/k10s/issues/60)) - Triggered by `/` keybinding. Opens a search box with live filtering - as the user types, the current view updates in real-time to show matching results
 - [x] **Switch between cluster contexts** ([#61](https://github.com/shvbsle/k10s/issues/61)) - Triggered by `:ctx` in command mode. Opens a context selector to switch between different kubeconfig contexts without leaving the TUI
-- [ ] **Edit manifests** ([#62](https://github.com/shvbsle/k10s/issues/62)) - Triggered by `e` keybinding when cursor is on any resource. Opens the resource manifest in the user's default editor (e.g., vim). Saving and closing the editor automatically applies the changes to the cluster
+- [x] **Edit manifests** ([#62](https://github.com/shvbsle/k10s/issues/62)) - Triggered by `e` keybinding when cursor is on any resource. Opens the resource manifest in the user's default editor (e.g., vim). Saving and closing the editor automatically applies the changes to the cluster
 - [x] **Describe output for resources** ([#63](https://github.com/shvbsle/k10s/issues/63)) - Triggered by `d` keybinding when cursor is on any resource. Renders `kubectl describe` output for the selected resource
 - [x] **YAML view for resources** - Triggered by `y` keybinding when cursor is on any resource. Renders the resource YAML manifest with syntax highlighting (bold keys), scrollable with arrow keys, line number toggle (`n`), and line wrapping toggle (`w`)
 - [ ] **Syntax highlighting for describe output** ([#64](https://github.com/shvbsle/k10s/issues/64)) - Add syntax highlighting to the describe output view for better readability
