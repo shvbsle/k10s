@@ -559,6 +559,66 @@ func (m *Model) getResourceYaml() tea.Cmd {
 	}
 }
 
+// editCurrentResource opens the selected resource in an external editor using kubectl edit.
+func (m *Model) editCurrentResource() tea.Cmd {
+	if len(m.resources) == 0 {
+		return func() tea.Msg {
+			return commandErrMsg{message: "no resource selected"}
+		}
+	}
+
+	actualIdx := m.paginator.Page*m.paginator.PerPage + m.table.Cursor()
+	if actualIdx >= len(m.resources) {
+		return func() tea.Msg {
+			return commandErrMsg{message: "invalid selection"}
+		}
+	}
+
+	selectedResource := m.resources[actualIdx]
+
+	// Extract name and namespace from the selected row
+	var selectedName, selectedNamespace string
+	if nameIndex, ok := k8s.NameColumn(m.table.Columns()); ok {
+		selectedName = selectedResource[nameIndex]
+	}
+	if namespaceIndex, ok := k8s.NamespaceColumn(m.table.Columns()); ok {
+		selectedNamespace = selectedResource[namespaceIndex]
+	}
+
+	// Use the current namespace if no namespace column exists (cluster-scoped resources)
+	if selectedNamespace == "" {
+		selectedNamespace = m.currentNamespace
+	}
+
+	log.G().Info("editing resource", "gvr", m.currentGVR, "name", selectedName, "namespace", selectedNamespace)
+
+	// Build kubectl edit command
+	resourceType := m.currentGVR.Resource
+	var args []string
+	if selectedNamespace != "" && selectedNamespace != metav1.NamespaceAll {
+		args = []string{"edit", resourceType, selectedName, "-n", selectedNamespace}
+	} else {
+		args = []string{"edit", resourceType, selectedName}
+	}
+
+	// Create the command that will run in the terminal
+	cmd := exec.Command("kubectl", args...)
+
+	// Use tea.ExecProcess to suspend the TUI, run kubectl edit, and resume when done
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			log.G().Error("failed to edit resource", "error", err)
+			return commandErrMsg{message: fmt.Sprintf("failed to edit resource: %v", err)}
+		}
+		// After editing, return message to trigger resource reload
+		log.G().Info("resource edit completed")
+		return resourceEditedMsg{
+			resourceName: selectedName,
+			resourceType: resourceType,
+		}
+	})
+}
+
 // executeCtxCommand handles the ctx command for listing and switching Kubernetes contexts.
 func (m *Model) executeCtxCommand(args []string) tea.Cmd {
 	// If no arguments, list all available contexts
