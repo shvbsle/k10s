@@ -23,7 +23,7 @@
 - [x] **Help page** ([#69](https://github.com/shvbsle/k10s/issues/69)) - Triggered by `?` keybinding. Shows all available commands and keybindings
 - [ ] **Shortcuts/profiles for keybindings** ([#70](https://github.com/shvbsle/k10s/issues/70)) - Customizable keybinding profiles (similar to nvim configuration)
 - [ ] **Scrollable logs view** ([#73](https://github.com/shvbsle/k10s/issues/73)) - Replace pagination with vertical scrolling for logs view
-- [ ] **Scrollable describe view** ([#74](https://github.com/shvbsle/k10s/issues/74)) - Replace pagination with vertical scrolling for describe output
+- [x] **Scrollable describe view** ([#74](https://github.com/shvbsle/k10s/issues/74)) - Replace pagination with vertical scrolling for describe output
 
 ## Branding
 
