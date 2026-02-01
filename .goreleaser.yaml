@@ -17,8 +17,7 @@ builds:
     flags: [ -trimpath ]
 
 archives:
-  - format: tar.gz
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE
       - README.md
@@ -34,6 +33,10 @@ brews:
     description: "A modern terminal UI for Kubernetes"
     homepage: "https://github.com/shvbsle/k10s"
     license: "Apache-2.0"
+    install: |
+      bin.install "k10s"
+    test: |
+      system "#{bin}/k10s", "--version"
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
@@ -57,11 +60,37 @@ nfpms:
     maintainer: "shvbsle <me@users.noreply.github.com>"
     description: "A modern terminal UI for Kubernetes"
     license: Apache-2.0
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/k10s/LICENSE
+      - src: README.md
+        dst: /usr/share/doc/k10s/README.md
+    rpm:
+      group: Applications/System
+      summary: A modern terminal UI for Kubernetes
 
 changelog:
   use: git
+  sort: asc
   filters:
     exclude:
       - '^chore:'
       - '^docs:'
       - '^test:'
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+
+release:
+  github:
+    owner: shvbsle
+    name: k10s
+  prerelease: auto
+  draft: false
