@@ -29,6 +29,7 @@ brews:
   - repository:
       owner: shvbsle
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     name: k10s
     description: "A modern terminal UI for Kubernetes"
     homepage: "https://github.com/shvbsle/k10s"
@@ -37,18 +38,6 @@ brews:
       bin.install "k10s"
     test: |
       system "#{bin}/k10s", "--version"
-    commit_author:
-      name: goreleaserbot
-      email: bot@goreleaser.com
-
-scoops:
-  - repository:
-      owner: shvbsle
-      name: scoop-bucket
-    name: k10s
-    description: "A modern terminal UI for Kubernetes"
-    homepage: "https://github.com/shvbsle/k10s"
-    license: "Apache-2.0"
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
