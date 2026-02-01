@@ -23,6 +23,57 @@ Built with Go + Bubble Tea.
 
 ## Installation
 
+### macOS (Homebrew)
+
+```bash
+brew tap shvbsle/tap
+brew install k10s
+```
+
+### Linux (RPM-based: Amazon Linux, RHEL, CentOS, Fedora)
+
+```bash
+# Download the latest release
+wget https://github.com/shvbsle/k10s/releases/latest/download/k10s_0.1.1_linux_amd64.rpm
+
+# Install
+sudo yum install ./k10s_0.1.1_linux_amd64.rpm
+
+# Or using rpm directly
+sudo rpm -i k10s_0.1.1_linux_amd64.rpm
+```
+
+### Linux (DEB-based: Debian, Ubuntu)
+
+```bash
+# Download the latest release
+wget https://github.com/shvbsle/k10s/releases/latest/download/k10s_0.1.1_linux_amd64.deb
+
+# Install
+sudo dpkg -i k10s_0.1.1_linux_amd64.deb
+```
+
+### Direct Binary Download
+
+Download the latest release for your platform from [GitHub Releases](https://github.com/shvbsle/k10s/releases):
+
+```bash
+# macOS ARM (M1/M2/M3)
+wget https://github.com/shvbsle/k10s/releases/latest/download/k10s_0.1.1_darwin_arm64.tar.gz
+tar -xzf k10s_0.1.1_darwin_arm64.tar.gz
+sudo mv k10s /usr/local/bin/
+
+# macOS Intel
+wget https://github.com/shvbsle/k10s/releases/latest/download/k10s_0.1.1_darwin_amd64.tar.gz
+tar -xzf k10s_0.1.1_darwin_amd64.tar.gz
+sudo mv k10s /usr/local/bin/
+
+# Linux AMD64
+wget https://github.com/shvbsle/k10s/releases/latest/download/k10s_0.1.1_linux_amd64.tar.gz
+tar -xzf k10s_0.1.1_linux_amd64.tar.gz
+sudo mv k10s /usr/local/bin/
+```
+
 ### From Source
 
 ```bash
@@ -33,30 +84,18 @@ make build
 
 The binary will be available at `bin/k10s`.
 
-### Homebrew (Coming Soon)
-
-Once releases are published:
-
-```bash
-brew tap shvbsle/tap
-brew install k10s
-```
-
-### Go install
+### Go Install
 
 ```bash
 go install github.com/shvbsle/k10s/cmd/k10s@latest
-k10s
 ```
 
 ### Running
 
-```bash
-# Run directly
-bin/k10s
+Once installed, start k10s:
 
-# Or use make
-make run
+```bash
+k10s
 ```
 
 ## Usage
