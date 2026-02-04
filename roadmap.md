@@ -24,6 +24,11 @@
 - [ ] **Shortcuts/profiles for keybindings** ([#70](https://github.com/shvbsle/k10s/issues/70)) - Customizable keybinding profiles (similar to nvim configuration)
 - [ ] **Scrollable logs view** ([#73](https://github.com/shvbsle/k10s/issues/73)) - Replace pagination with vertical scrolling for logs view
 - [x] **Scrollable describe view** ([#74](https://github.com/shvbsle/k10s/issues/74)) - Replace pagination with vertical scrolling for describe output
+- [ ] **Cloud cluster context switching** () - Improved context switching for cloud environments (EKS, GKE, AKS). On cloud desktops, clusters across multiple accounts may have different credential requirements. This feature would streamline authentication and context switching for multi-account cloud setups.
+- [ ] **Table view aesthetic improvements** () - Enhance the table view for better readability and data visibility:
+  1. Color-coded namespace column - assign consistent colors to different namespaces to visually distinguish them
+  2. Color-coded phase/status column - green for Running, yellow for Pending, red for error states, gray for Completed
+  3. Horizontal scroll for table - use `<`/`>` or arrow keys to scroll horizontally when columns are clipped (e.g., Node column), allowing users to see all data without truncation
 
 ## Branding
 
