@@ -617,13 +617,8 @@ func (m *Model) editCurrentResource() tea.Cmd {
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		if err != nil {
 			log.G().Error("failed to edit resource", "error", err)
-			// Provide more helpful error messages based on resource type
-			errMsg := fmt.Sprintf("Edit failed: %v", err)
-			if resourceType == "pods" {
-				errMsg = "Edit failed. Pods managed by controllers (Deployment, DaemonSet, etc.) cannot be edited directly. Try editing the parent controller instead."
-			} else if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-				errMsg = "Edit failed or no changes were made."
-			}
+			// Provide a helpful generic error message
+			errMsg := "Edit failed. Your changes were not saved - the resource may be immutable or managed by a controller."
 			return commandErrMsg{message: errMsg}
 		}
 		// After editing, return message to trigger resource reload
