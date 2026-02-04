@@ -259,10 +259,19 @@ func (m *Model) watchResources(gvr schema.GroupVersionResource, namespace string
 						sort.Slice(m.resources, sortIndex(namespaceIndex))
 					}
 				case watch.Modified:
-					lo.Assert(index != -1, "cant update non-existing item")
+					if index == -1 {
+						// Resource not found in current list - this can happen during race conditions
+						// (e.g., resource list was reloaded). Just skip this update.
+						log.G().Debug("watch modified event for resource not in list, skipping", "name", obj.GetName())
+						continue
+					}
 					m.resources[index] = fields
 				case watch.Deleted:
-					lo.Assert(index != -1, "cant delete non-existing item")
+					if index == -1 {
+						// Resource not found - already removed or list was reloaded. Skip.
+						log.G().Debug("watch deleted event for resource not in list, skipping", "name", obj.GetName())
+						continue
+					}
 					m.resources = slices.Delete(m.resources, index, index+1)
 				}
 
@@ -608,7 +617,14 @@ func (m *Model) editCurrentResource() tea.Cmd {
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		if err != nil {
 			log.G().Error("failed to edit resource", "error", err)
-			return commandErrMsg{message: fmt.Sprintf("failed to edit resource: %v", err)}
+			// Provide more helpful error messages based on resource type
+			errMsg := fmt.Sprintf("Edit failed: %v", err)
+			if resourceType == "pods" {
+				errMsg = "Edit failed. Pods managed by controllers (Deployment, DaemonSet, etc.) cannot be edited directly. Try editing the parent controller instead."
+			} else if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+				errMsg = "Edit failed or no changes were made."
+			}
+			return commandErrMsg{message: errMsg}
 		}
 		// After editing, return message to trigger resource reload
 		log.G().Info("resource edit completed")
