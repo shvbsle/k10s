@@ -394,21 +394,7 @@ func (m *Model) drillDown(selectedResource k8s.OrderedResourceFields) tea.Cmd {
 				log.TUI().Error("Failed to get pod info from outer memento")
 				return errMsg{fmt.Errorf("failed to get pod info")}
 			}
-			var (
-				podName      = memento.resourceName
-				podNamespace = memento.namespace
-			)
-			logLines, err := m.k8sClient.GetContainerLogs(podName, podNamespace, selectedName, m.config.LogTailLines, true)
-			if err != nil {
-				log.TUI().Error("Failed to load logs", "error", err)
-				return errMsg{err}
-			}
-			return logsLoadedMsg{
-				logLines:      logLines,
-				namespace:     selectedNamespace,
-				podName:       podName,
-				containerName: selectedName,
-			}
+			return m.fetchContainerLogs(memento.resourceName, memento.namespace, selectedName, selectedNamespace)
 		}
 	case k8s.ResourceLogs:
 		// TODO: noop, cant select logs
@@ -765,6 +751,22 @@ func (m *Model) executeNsCommand(args []string) tea.Cmd {
 
 }
 
+// fetchContainerLogs fetches logs for a specific container and returns a logsLoadedMsg.
+// This is the shared path used by both the 'l' keybinding and the container drill-down.
+func (m *Model) fetchContainerLogs(podName, podNamespace, containerName, namespace string) tea.Msg {
+	logLines, err := m.k8sClient.GetContainerLogs(podName, podNamespace, containerName, m.config.LogTailLines, true)
+	if err != nil {
+		log.G().Error("failed to load logs", "pod", podName, "container", containerName, "error", err)
+		return errMsg{err}
+	}
+	return logsLoadedMsg{
+		logLines:      logLines,
+		namespace:     namespace,
+		podName:       podName,
+		containerName: containerName,
+	}
+}
+
 // openLogsForPod opens logs for a pod. If the pod has a single container, it shows
 // logs directly. If it has multiple containers, it shows the container selector.
 func (m *Model) openLogsForPod(podName, namespace string) tea.Cmd {
@@ -782,17 +784,7 @@ func (m *Model) openLogsForPod(podName, namespace string) tea.Cmd {
 		// Single container: go directly to logs
 		if len(containers) == 1 {
 			containerName := containers[0][0] // First field is the container name
-			logLines, err := m.k8sClient.GetContainerLogs(podName, namespace, containerName, m.config.LogTailLines, true)
-			if err != nil {
-				log.G().Error("failed to load logs", "error", err)
-				return errMsg{err}
-			}
-			return logsLoadedMsg{
-				logLines:      logLines,
-				namespace:     namespace,
-				podName:       podName,
-				containerName: containerName,
-			}
+			return m.fetchContainerLogs(podName, namespace, containerName, namespace)
 		}
 
 		// Multiple containers: show container selector

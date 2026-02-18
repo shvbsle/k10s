@@ -110,7 +110,8 @@ func (c *Client) StreamContainerLogs(
 	podLogs, err := req.Stream(ctx)
 	if err != nil {
 		cancelFunc()
-		c.isConnected = false
+		// Don't mark disconnected — streaming may fail even when the cluster is reachable
+		// (e.g., Follow not supported for certain pod states)
 		return nil, err
 	}
 

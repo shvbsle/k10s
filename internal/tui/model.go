@@ -503,8 +503,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case logStreamErrorMsg:
 		log.G().Error("log stream error", "error", msg.err)
-		m.commandErr = fmt.Sprintf("Log stream error: %v", msg.err)
-		return m, nil
+		m.commandErr = fmt.Sprintf("Log stream interrupted: %v", msg.err)
+		return m, tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+			return clearCommandErrMsg{}
+		})
 
 	case logStreamStoppedMsg:
 		log.G().Info("log stream stopped")
@@ -1113,7 +1115,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 					actualIdx := m.paginator.Page*m.paginator.PerPage + m.table.Cursor()
-					if actualIdx >= len(m.resources) {
+					if actualIdx < 0 || actualIdx >= len(m.resources) {
 						return m, nil
 					}
 					selectedResource := m.resources[actualIdx]
