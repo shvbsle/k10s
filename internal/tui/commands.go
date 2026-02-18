@@ -842,3 +842,100 @@ func (m *Model) stopLogStream() {
 	}
 	m.logLinesChan = nil
 }
+
+// execIntoPod opens a shell into a pod. If the pod has a single container,
+// it execs directly. If multiple containers exist, it shows the container picker.
+func (m *Model) execIntoPod(podName, namespace string) tea.Cmd {
+	return func() tea.Msg {
+		containers, err := m.k8sClient.ListContainersForPod(podName, namespace)
+		if err != nil {
+			log.G().Error("failed to list containers for exec", "pod", podName, "error", err)
+			return errMsg{err}
+		}
+
+		if len(containers) == 0 {
+			return commandErrMsg{message: fmt.Sprintf("no containers found for pod %s", podName)}
+		}
+
+		// Single container: exec directly
+		if len(containers) == 1 {
+			containerName := containers[0][0]
+			status := containers[0][3] // Status is the 4th field
+			if !isContainerRunning(status) {
+				return commandErrMsg{message: fmt.Sprintf("container %s is not running (status: %s)", containerName, status)}
+			}
+			return execIntoContainerCmd(podName, namespace, containerName)
+		}
+
+		// Multiple containers: show container picker
+		return resourcesLoadedMsg{
+			resources: containers,
+			gvr:       schema.GroupVersionResource{Resource: k8s.ResourceContainers},
+			namespace: namespace,
+		}
+	}
+}
+
+// execIntoContainer resolves the pod from navigation history and execs into
+// the currently selected container.
+func (m *Model) execIntoContainer() tea.Cmd {
+	if len(m.resources) == 0 {
+		return func() tea.Msg {
+			return commandErrMsg{message: "no container selected"}
+		}
+	}
+
+	actualIdx := m.paginator.Page*m.paginator.PerPage + m.table.Cursor()
+	if actualIdx >= len(m.resources) {
+		return func() tea.Msg {
+			return commandErrMsg{message: "invalid selection"}
+		}
+	}
+
+	selectedResource := m.resources[actualIdx]
+	containerName := selectedResource[0]
+	status := selectedResource[3] // Status is the 4th field
+
+	if !isContainerRunning(status) {
+		return func() tea.Msg {
+			return commandErrMsg{message: fmt.Sprintf("container %s is not running (status: %s)", containerName, status)}
+		}
+	}
+
+	// Resolve pod info from navigation history
+	memento, ok := m.navigationHistory.FindMementoByResourceType(k8s.ResourcePods)
+	if !ok {
+		return func() tea.Msg {
+			return commandErrMsg{message: "failed to resolve pod info from navigation history"}
+		}
+	}
+
+	podName := memento.resourceName
+	namespace := memento.namespace
+
+	return func() tea.Msg {
+		return execIntoContainerCmd(podName, namespace, containerName)
+	}
+}
+
+// execIntoContainerCmd runs kubectl exec to open a shell in the specified container.
+// This is a pure function that builds the exec message without needing Model state.
+func execIntoContainerCmd(podName, namespace, containerName string) tea.Msg {
+	return execShellMsg{
+		podName:       podName,
+		namespace:     namespace,
+		containerName: containerName,
+	}
+}
+
+// execShellMsg triggers the actual kubectl exec process
+type execShellMsg struct {
+	podName       string
+	namespace     string
+	containerName string
+}
+
+// BuildExecArgs constructs the kubectl exec arguments for the given pod, namespace, and container.
+func BuildExecArgs(podName, namespace, containerName string) []string {
+	return []string{"exec", "-it", podName, "-c", containerName, "-n", namespace, "--", "/bin/sh"}
+}

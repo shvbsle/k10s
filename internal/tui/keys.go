@@ -27,6 +27,7 @@ type keyMap struct {
 	Describe key.Binding
 	YamlView key.Binding
 	Edit     key.Binding
+	Shell    key.Binding
 }
 
 // newKeyMap creates a new keyMap with all bindings configured
@@ -115,6 +116,10 @@ func newKeyMap() keyMap {
 		Edit: key.NewBinding(
 			key.WithKeys("e"),
 			key.WithHelp("e", "edit"),
+		),
+		Shell: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "shell"),
 		),
 	}
 }

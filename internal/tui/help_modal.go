@@ -163,6 +163,7 @@ func (m *Model) BuildHelpContent() string {
 	b.WriteString(dimStyle.Render("Actions") + "\n")
 	b.WriteString(keyStyle.Render(":") + descStyle.Render("Open command palette") + "\n")
 	b.WriteString(keyStyle.Render("d") + descStyle.Render("Describe selected resource (YAML)") + "\n")
+	b.WriteString(keyStyle.Render("s") + descStyle.Render("Shell into pod/container") + "\n")
 	b.WriteString(keyStyle.Render("?") + descStyle.Render("Toggle this help modal") + "\n")
 	b.WriteString(keyStyle.Render("Ctrl+C") + descStyle.Render("Quit") + "\n")
 

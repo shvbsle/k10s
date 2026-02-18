@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -143,6 +144,11 @@ type resourceEditedMsg struct {
 	resourceType string
 }
 
+// execCompletedMsg is sent when a kubectl exec session completes
+type execCompletedMsg struct {
+	err error
+}
+
 type contextsLoadedMsg struct {
 	contexts []k8s.OrderedResourceFields
 }
@@ -235,6 +241,9 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 	keys.WrapText.SetEnabled(false)
 	keys.CopyLogs.SetEnabled(false)
 	keys.ToggleLineNums.SetEnabled(false)
+
+	// Disable shell key by default (enabled only in pods/containers view)
+	keys.Shell.SetEnabled(false)
 
 	h := help.New()
 	h.ShowAll = true // Show full help by default
@@ -345,6 +354,11 @@ func (m *Model) FullHelp() [][]key.Binding {
 		base = append(base, []key.Binding{
 			m.keys.Fullscreen, m.keys.Autoscroll, m.keys.ToggleTime, m.keys.WrapText, m.keys.CopyLogs,
 		})
+	}
+
+	// Show shell key when viewing pods or containers
+	if m.currentGVR.Resource == k8s.ResourcePods || m.currentGVR.Resource == k8s.ResourceContainers {
+		base = append(base, []key.Binding{m.keys.Shell})
 	}
 
 	return base
@@ -605,6 +619,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return clearCommandSuccessMsg{}
 			}),
 		)
+
+	case execShellMsg:
+		// Launch kubectl exec as an external process.
+		// Wrap in sh -c to clear the terminal and reset cursor to top-left
+		// before starting the shell session.
+		args := BuildExecArgs(msg.podName, msg.namespace, msg.containerName)
+		shellCmd := "printf '\\033[2J\\033[H' && kubectl"
+		for _, arg := range args {
+			shellCmd += " " + shellQuote(arg)
+		}
+		cmd := exec.Command("sh", "-c", shellCmd)
+		return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+			return execCompletedMsg{err: err}
+		})
+
+	case execCompletedMsg:
+		if msg.err != nil {
+			m.commandErr = fmt.Sprintf("Shell session failed: %v", msg.err)
+			return m, tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+				return clearCommandErrMsg{}
+			})
+		}
+		m.commandSuccess = "Shell session ended"
+		return m, tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+			return clearCommandSuccessMsg{}
+		})
 
 	case launchPluginMsg:
 		m.pluginToLaunch = msg.plugin
@@ -944,6 +984,37 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.logView.Autoscroll {
 						m.table.GotoBottom()
 					}
+					return m, nil
+				}
+				// Shell exec for pods and containers views
+				if m.currentGVR.Resource == k8s.ResourcePods {
+					if !m.isConnected() {
+						m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
+						return m, nil
+					}
+					if len(m.resources) == 0 {
+						return m, nil
+					}
+					actualIdx := m.paginator.Page*m.paginator.PerPage + m.table.Cursor()
+					if actualIdx >= len(m.resources) {
+						return m, nil
+					}
+					selectedResource := m.resources[actualIdx]
+					var selectedName, selectedNamespace string
+					if nameIndex, ok := k8s.NameColumn(m.table.Columns()); ok {
+						selectedName = selectedResource[nameIndex]
+					}
+					if namespaceIndex, ok := k8s.NamespaceColumn(m.table.Columns()); ok {
+						selectedNamespace = selectedResource[namespaceIndex]
+					}
+					return m, m.commandWithPreflights(m.execIntoPod(selectedName, selectedNamespace), m.requireConnection)
+				}
+				if m.currentGVR.Resource == k8s.ResourceContainers {
+					if !m.isConnected() {
+						m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
+						return m, nil
+					}
+					return m, m.commandWithPreflights(m.execIntoContainer(), m.requireConnection)
 				}
 				return m, nil
 			case "t":

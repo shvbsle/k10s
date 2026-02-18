@@ -61,6 +61,11 @@ func (m *Model) updateKeysForResourceType() {
 	canUseNS := m.isNamespaced(m.currentGVR.Resource)
 	m.keys.AllNS.SetEnabled(canUseNS)
 	m.keys.DefaultNS.SetEnabled(canUseNS)
+
+	// Enable shell key only for pods and containers views
+	isPods := m.currentGVR.Resource == k8s.ResourcePods
+	isContainers := m.currentGVR.Resource == k8s.ResourceContainers
+	m.keys.Shell.SetEnabled(isPods || isContainers)
 }
 
 // getLogPodName returns the pod name from navigation history for the current log view
@@ -83,4 +88,15 @@ func (m *Model) getLogContainerName() string {
 		return m.logViewport.containerName
 	}
 	return ""
+}
+
+// isContainerRunning checks if a container status string indicates a Running state.
+func isContainerRunning(status string) bool {
+	return status == "Running"
+}
+
+// shellQuote wraps a string in single quotes for safe shell interpolation,
+// escaping any embedded single quotes.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
