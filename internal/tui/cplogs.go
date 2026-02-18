@@ -118,9 +118,9 @@ func (m *Model) formatLogs(logLines []k8s.LogLine) string {
 
 	for _, logLine := range logLines {
 		if m.logView.ShowTimestamps && logLine.Timestamp != "" {
-			b.WriteString(fmt.Sprintf("[%s] %s\n", logLine.Timestamp, logLine.Content))
+			fmt.Fprintf(&b, "[%s] %s\n", logLine.Timestamp, logLine.Content)
 		} else {
-			b.WriteString(fmt.Sprintf("%s\n", logLine.Content))
+			fmt.Fprintf(&b, "%s\n", logLine.Content)
 		}
 	}
 

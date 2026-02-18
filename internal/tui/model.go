@@ -1198,11 +1198,12 @@ func (m *Model) View() tea.View {
 	}
 
 	// Render describe/yaml view, log viewport, or regular table
-	if m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceYaml {
+	switch m.currentGVR.Resource {
+	case k8s.ResourceDescribe, k8s.ResourceYaml:
 		b.WriteString(m.describeViewport.View())
-	} else if m.currentGVR.Resource == k8s.ResourceLogs {
+	case k8s.ResourceLogs:
 		b.WriteString(m.logViewport.View())
-	} else {
+	default:
 		m.renderTableWithHeader(&b)
 
 		// Render breadcrumb navigation if we're in a drilled-down view
