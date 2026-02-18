@@ -78,6 +78,9 @@ type Model struct {
 	pluginToLaunch    plugins.Plugin
 	helpModal         *HelpModal
 	describeViewport  *DescribeViewport
+	logViewport       *LogViewport
+	logStreamCancel   func()             // Function to cancel active log stream
+	logLinesChan      <-chan k8s.LogLine // Channel for receiving streamed log lines
 }
 
 func (m *Model) tryQueueTableUpdate() bool {
@@ -103,8 +106,10 @@ type resourcesLoadedMsg struct {
 }
 
 type logsLoadedMsg struct {
-	logLines  []k8s.LogLine
-	namespace string
+	logLines      []k8s.LogLine
+	namespace     string
+	podName       string
+	containerName string
 }
 
 type commandErrMsg struct {
@@ -155,6 +160,19 @@ type namespaceSwitchedMsg struct {
 	namespace string
 	success   bool
 }
+
+// logStreamMsg is sent when new log lines arrive from the stream
+type logStreamMsg struct {
+	lines []k8s.LogLine
+}
+
+// logStreamErrorMsg is sent when the log stream encounters an error
+type logStreamErrorMsg struct {
+	err error
+}
+
+// logStreamStoppedMsg is sent when the log stream is stopped
+type logStreamStoppedMsg struct{}
 
 // New creates a new TUI model with the provided configuration and Kubernetes client.
 // The client may be nil or disconnected - the TUI will handle this gracefully and
@@ -284,6 +302,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 		pluginRegistry:    registry,
 		helpModal:         NewHelpModal(),
 		describeViewport:  NewDescribeViewport(),
+		logViewport:       NewLogViewport(),
 	}
 }
 
@@ -363,6 +382,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.describeViewport.SetSize(msg.Width-2, max(msg.Height-describeHeaderHeight, 10))
 
+		// Update log viewport size
+		var logHeaderHeight int
+		if m.logView != nil && m.logView.Fullscreen {
+			logHeaderHeight = 2
+		} else {
+			logHeaderHeight = 7
+		}
+		m.logViewport.SetSize(msg.Width-2, max(msg.Height-logHeaderHeight, 10))
+
 		// Calculate header height based on page_size setting
 		// When auto (default): minimize header to extend table to command palette
 		// When fixed: use larger header for comfortable viewing with pagination
@@ -436,19 +464,52 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateKeysForResourceType()
 		m.updateColumns(m.viewWidth)
 
-		// Jump to last page for tailing behavior
-		if len(m.logLines) > 0 {
-			lastPage := (len(m.logLines) - 1) / m.paginator.PerPage
-			m.paginator.Page = lastPage
+		// Determine pod and container names
+		podName := msg.podName
+		containerName := msg.containerName
+		if podName == "" {
+			podName = m.getLogPodName()
+		}
+		if containerName == "" {
+			containerName = m.getLogContainerName()
 		}
 
-		m.updateTableData()
-		m.table.SetCursor(0)
+		// Set up the log viewport with content
+		m.logViewport.SetContent(msg.logLines, podName, containerName, msg.namespace)
 
-		if m.logView.Autoscroll {
-			m.table.GotoBottom()
+		// Calculate available height for log viewport
+		var headerHeight int
+		if m.logView != nil && m.logView.Fullscreen {
+			headerHeight = 2
+		} else {
+			headerHeight = 7
+		}
+		logHeight := max(m.viewHeight-headerHeight, 10)
+		m.logViewport.SetSize(m.viewWidth-2, logHeight)
+
+		// Start streaming logs
+		if podName != "" && containerName != "" {
+			return m, m.startLogStream(podName, msg.namespace, containerName)
 		}
 
+		return m, nil
+
+	case logStreamMsg:
+		m.logViewport.AppendLines(msg.lines)
+		// Also append to m.logLines for cplogs compatibility
+		m.logLines = append(m.logLines, msg.lines...)
+		// Continue listening for more lines
+		return m, m.listenForLogLines()
+
+	case logStreamErrorMsg:
+		log.G().Error("log stream error", "error", msg.err)
+		m.commandErr = fmt.Sprintf("Log stream interrupted: %v", msg.err)
+		return m, tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+			return clearCommandErrMsg{}
+		})
+
+	case logStreamStoppedMsg:
+		log.G().Info("log stream stopped")
 		return m, nil
 
 	case resourceDescribedMsg:
@@ -673,6 +734,67 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				// Pass other keys to the describe viewport for navigation
 				m.describeViewport, cmd = m.describeViewport.Update(msg)
+				return m, cmd
+			}
+		}
+
+		// Handle log view input - pass to log viewport
+		// Only handle when NOT in command mode
+		if m.currentGVR.Resource == k8s.ResourceLogs && m.viewMode != ViewModeCommand {
+			switch msg.String() {
+			case "esc", "escape":
+				// Stop log stream and go back
+				m.stopLogStream()
+				memento := m.navigationHistory.Pop()
+				if memento != nil {
+					m.restoreFromMemento(memento)
+				} else {
+					return m, m.loadResources(k8s.ResourcePods)
+				}
+				return m, nil
+			case "?":
+				m.helpModal.SetContent(m.BuildHelpContent())
+				m.helpModal.Toggle()
+				return m, nil
+			case ":":
+				m.viewMode = ViewModeCommand
+				m.commandInput.Focus()
+				m.commandErr = ""
+				m.commandSuccess = ""
+				return m, nil
+			case "n":
+				m.logViewport.ToggleLineNumbers()
+				return m, nil
+			case "t":
+				m.logViewport.ToggleTimestamps()
+				m.logView.ShowTimestamps = m.logViewport.ShowTimestamps()
+				return m, nil
+			case "s":
+				m.logViewport.ToggleAutoScroll()
+				m.logView.Autoscroll = m.logViewport.AutoScroll()
+				return m, nil
+			case "w":
+				m.logViewport.ToggleWordWrap()
+				m.logView.WrapText = m.logViewport.WordWrap()
+				return m, nil
+			case "f":
+				m.logView.Fullscreen = !m.logView.Fullscreen
+				// Recalculate viewport size
+				var headerHeight int
+				if m.logView.Fullscreen {
+					headerHeight = 2
+				} else {
+					headerHeight = 7
+				}
+				logHeight := max(m.viewHeight-headerHeight, 10)
+				m.logViewport.SetSize(m.viewWidth-2, logHeight)
+				return m, nil
+			case "ctrl+c":
+				m.stopLogStream()
+				return m, tea.Quit
+			default:
+				// Pass other keys to the log viewport for navigation (j/k, g/G, etc.)
+				m.logViewport, cmd = m.logViewport.Update(msg)
 				return m, cmd
 			}
 		}
@@ -983,6 +1105,34 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "l", "right", "pgdown":
+				// 'l' on a pod resource opens logs directly
+				if msg.String() == "l" && m.currentGVR.Resource == k8s.ResourcePods {
+					if !m.isConnected() {
+						m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
+						return m, nil
+					}
+					if len(m.resources) == 0 {
+						return m, nil
+					}
+					actualIdx := m.paginator.Page*m.paginator.PerPage + m.table.Cursor()
+					if actualIdx < 0 || actualIdx >= len(m.resources) {
+						return m, nil
+					}
+					selectedResource := m.resources[actualIdx]
+					var selectedName, selectedNamespace string
+					if nameIndex, ok := k8s.NameColumn(m.table.Columns()); ok {
+						selectedName = selectedResource[nameIndex]
+					}
+					if namespaceIndex, ok := k8s.NamespaceColumn(m.table.Columns()); ok {
+						selectedNamespace = selectedResource[namespaceIndex]
+					}
+
+					// Save navigation state
+					memento := m.saveToMemento(selectedName, selectedNamespace)
+					m.navigationHistory.Push(memento)
+
+					return m, m.commandWithPreflights(m.openLogsForPod(selectedName, selectedNamespace), m.requireConnection)
+				}
 				if m.paginator.Page < m.paginator.TotalPages-1 {
 					m.paginator.NextPage()
 					m.updateTableData()
@@ -1047,10 +1197,13 @@ func (m *Model) View() tea.View {
 		}
 	}
 
-	// Render describe/yaml view or regular table
-	if m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceYaml {
+	// Render describe/yaml view, log viewport, or regular table
+	switch m.currentGVR.Resource {
+	case k8s.ResourceDescribe, k8s.ResourceYaml:
 		b.WriteString(m.describeViewport.View())
-	} else {
+	case k8s.ResourceLogs:
+		b.WriteString(m.logViewport.View())
+	default:
 		m.renderTableWithHeader(&b)
 
 		// Render breadcrumb navigation if we're in a drilled-down view

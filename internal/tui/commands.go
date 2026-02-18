@@ -394,19 +394,7 @@ func (m *Model) drillDown(selectedResource k8s.OrderedResourceFields) tea.Cmd {
 				log.TUI().Error("Failed to get pod info from outer memento")
 				return errMsg{fmt.Errorf("failed to get pod info")}
 			}
-			var (
-				podName      = memento.resourceName
-				podNamespace = memento.namespace
-			)
-			logLines, err := m.k8sClient.GetContainerLogs(podName, podNamespace, selectedName, m.config.LogTailLines, true)
-			if err != nil {
-				log.TUI().Error("Failed to load logs", "error", err)
-				return errMsg{err}
-			}
-			return logsLoadedMsg{
-				logLines:  logLines,
-				namespace: selectedNamespace,
-			}
+			return m.fetchContainerLogs(memento.resourceName, memento.namespace, selectedName, selectedNamespace)
 		}
 	case k8s.ResourceLogs:
 		// TODO: noop, cant select logs
@@ -761,4 +749,96 @@ func (m *Model) executeNsCommand(args []string) tea.Cmd {
 		}
 	}
 
+}
+
+// fetchContainerLogs fetches logs for a specific container and returns a logsLoadedMsg.
+// This is the shared path used by both the 'l' keybinding and the container drill-down.
+func (m *Model) fetchContainerLogs(podName, podNamespace, containerName, namespace string) tea.Msg {
+	logLines, err := m.k8sClient.GetContainerLogs(podName, podNamespace, containerName, m.config.LogTailLines, true)
+	if err != nil {
+		log.G().Error("failed to load logs", "pod", podName, "container", containerName, "error", err)
+		return errMsg{err}
+	}
+	return logsLoadedMsg{
+		logLines:      logLines,
+		namespace:     namespace,
+		podName:       podName,
+		containerName: containerName,
+	}
+}
+
+// openLogsForPod opens logs for a pod. If the pod has a single container, it shows
+// logs directly. If it has multiple containers, it shows the container selector.
+func (m *Model) openLogsForPod(podName, namespace string) tea.Cmd {
+	return func() tea.Msg {
+		containers, err := m.k8sClient.ListContainersForPod(podName, namespace)
+		if err != nil {
+			log.G().Error("failed to list containers for pod", "pod", podName, "error", err)
+			return errMsg{err}
+		}
+
+		if len(containers) == 0 {
+			return errMsg{fmt.Errorf("no containers found for pod %s", podName)}
+		}
+
+		// Single container: go directly to logs
+		if len(containers) == 1 {
+			containerName := containers[0][0] // First field is the container name
+			return m.fetchContainerLogs(podName, namespace, containerName, namespace)
+		}
+
+		// Multiple containers: show container selector
+		return resourcesLoadedMsg{
+			resources: containers,
+			gvr:       schema.GroupVersionResource{Resource: k8s.ResourceContainers},
+			namespace: namespace,
+		}
+	}
+}
+
+// startLogStream starts streaming logs for a container and returns a tea.Cmd
+// that listens for new log lines.
+func (m *Model) startLogStream(podName, namespace, containerName string) tea.Cmd {
+	// Cancel any existing stream
+	m.stopLogStream()
+
+	tailLines := k8s.CalculateTailLines(m.viewHeight)
+	linesChan := make(chan k8s.LogLine, 100)
+
+	cancel, err := m.k8sClient.StreamContainerLogs(podName, namespace, containerName, tailLines, true, linesChan)
+	if err != nil {
+		return func() tea.Msg {
+			return logStreamErrorMsg{err: err}
+		}
+	}
+
+	m.logStreamCancel = cancel
+	m.logLinesChan = linesChan
+
+	// Return a command that reads from the channel and sends messages
+	return m.listenForLogLines()
+}
+
+// listenForLogLines creates a tea.Cmd that reads log lines from the stored channel
+func (m *Model) listenForLogLines() tea.Cmd {
+	ch := m.logLinesChan
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		line, ok := <-ch
+		if !ok {
+			return logStreamStoppedMsg{}
+		}
+		return logStreamMsg{lines: []k8s.LogLine{line}}
+	}
+}
+
+// stopLogStream stops the active log stream
+func (m *Model) stopLogStream() {
+	if m.logStreamCancel != nil {
+		m.logStreamCancel()
+		m.logStreamCancel = nil
+	}
+	m.logLinesChan = nil
 }

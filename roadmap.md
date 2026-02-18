@@ -9,8 +9,8 @@
 - [x] **YAML view for resources** - Triggered by `y` keybinding when cursor is on any resource. Renders the resource YAML manifest with syntax highlighting (bold keys), scrollable with arrow keys, line number toggle (`n`), and line wrapping toggle (`w`)
 - [ ] **Syntax highlighting for describe output** ([#64](https://github.com/shvbsle/k10s/issues/64)) - Add syntax highlighting to the describe output view for better readability
 - [ ] **SSH into containers** ([#65](https://github.com/shvbsle/k10s/issues/65)) - Triggered by `s` keybinding when cursor is on any resource. Equivalent to `kubectl exec -it <pod> -- /bin/sh`
-- [ ] **Logs shortcut** ([#66](https://github.com/shvbsle/k10s/issues/66)) - Triggered by `l` keybinding to display logs for selected pod/container
-- [ ] **Real-time logs** ([#67](https://github.com/shvbsle/k10s/issues/67)) - Stream logs in real-time with auto-scroll and filtering
+- [x] **Logs shortcut** ([#66](https://github.com/shvbsle/k10s/issues/66)) - Triggered by `l` keybinding to display logs for selected pod/container
+- [x] **Real-time logs** ([#67](https://github.com/shvbsle/k10s/issues/67)) - Stream logs in real-time with auto-scroll and filtering
 - [x] **Switch namespaces** ([]()) - Use `:ns` command to switch between namespaces
 
 
@@ -22,7 +22,7 @@
 
 - [x] **Help page** ([#69](https://github.com/shvbsle/k10s/issues/69)) - Triggered by `?` keybinding. Shows all available commands and keybindings
 - [ ] **Shortcuts/profiles for keybindings** ([#70](https://github.com/shvbsle/k10s/issues/70)) - Customizable keybinding profiles (similar to nvim configuration)
-- [ ] **Scrollable logs view** ([#73](https://github.com/shvbsle/k10s/issues/73)) - Replace pagination with vertical scrolling for logs view
+- [x] **Scrollable logs view** ([#73](https://github.com/shvbsle/k10s/issues/73)) - Replace pagination with vertical scrolling for logs view
 - [x] **Scrollable describe view** ([#74](https://github.com/shvbsle/k10s/issues/74)) - Replace pagination with vertical scrolling for describe output
 - [ ] **Cloud cluster context switching** () - Improved context switching for cloud environments (EKS, GKE, AKS). On cloud desktops, clusters across multiple accounts may have different credential requirements. This feature would streamline authentication and context switching for multi-account cloud setups.
 - [ ] **Table view aesthetic improvements** () - Enhance the table view for better readability and data visibility:

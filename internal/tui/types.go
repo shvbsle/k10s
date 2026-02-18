@@ -17,7 +17,7 @@ type LogViewState struct {
 func NewLogViewState() *LogViewState {
 	return &LogViewState{
 		Autoscroll:     true,
-		Fullscreen:     false,
+		Fullscreen:     true,
 		ShowTimestamps: false,
 		WrapText:       false,
 	}

@@ -62,3 +62,25 @@ func (m *Model) updateKeysForResourceType() {
 	m.keys.AllNS.SetEnabled(canUseNS)
 	m.keys.DefaultNS.SetEnabled(canUseNS)
 }
+
+// getLogPodName returns the pod name from navigation history for the current log view
+func (m *Model) getLogPodName() string {
+	// Check if we came from containers view (pod → containers → logs)
+	if memento, ok := m.navigationHistory.FindMementoByResourceType(k8s.ResourcePods); ok {
+		return memento.resourceName
+	}
+	return ""
+}
+
+// getLogContainerName returns the container name from navigation history for the current log view
+func (m *Model) getLogContainerName() string {
+	// Check if we came from containers view
+	if memento, ok := m.navigationHistory.FindMementoByResourceType(k8s.ResourceContainers); ok {
+		return memento.resourceName
+	}
+	// If we came directly from pods (single container), the container name is in the log viewport
+	if m.logViewport != nil {
+		return m.logViewport.containerName
+	}
+	return ""
+}
