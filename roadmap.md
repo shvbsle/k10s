@@ -8,7 +8,7 @@
 - [x] **Describe output for resources** ([#63](https://github.com/shvbsle/k10s/issues/63)) - Triggered by `d` keybinding when cursor is on any resource. Renders `kubectl describe` output for the selected resource
 - [x] **YAML view for resources** - Triggered by `y` keybinding when cursor is on any resource. Renders the resource YAML manifest with syntax highlighting (bold keys), scrollable with arrow keys, line number toggle (`n`), and line wrapping toggle (`w`)
 - [ ] **Syntax highlighting for describe output** ([#64](https://github.com/shvbsle/k10s/issues/64)) - Add syntax highlighting to the describe output view for better readability
-- [ ] **SSH into containers** ([#65](https://github.com/shvbsle/k10s/issues/65)) - Triggered by `s` keybinding when cursor is on any resource. Equivalent to `kubectl exec -it <pod> -- /bin/sh`
+- [x] **SSH into containers** ([#65](https://github.com/shvbsle/k10s/issues/65)) - Triggered by `s` keybinding when cursor is on a pod or container. Equivalent to `kubectl exec -it <pod> -c <container> -- /bin/sh`. For multi-container pods, shows a container picker first
 - [x] **Logs shortcut** ([#66](https://github.com/shvbsle/k10s/issues/66)) - Triggered by `l` keybinding to display logs for selected pod/container
 - [x] **Real-time logs** ([#67](https://github.com/shvbsle/k10s/issues/67)) - Stream logs in real-time with auto-scroll and filtering
 - [x] **Switch namespaces** ([]()) - Use `:ns` command to switch between namespaces
