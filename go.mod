@@ -12,7 +12,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/gammazero/deque v1.2.1
 	github.com/google/gnostic-models v0.7.1
-	github.com/mattn/go-runewidth v0.0.19
+	github.com/mattn/go-runewidth v0.0.20
 	github.com/samber/lo v1.52.0
 	k8s.io/api v0.35.1
 	k8s.io/apimachinery v0.35.1
