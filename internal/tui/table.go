@@ -94,6 +94,67 @@ func wrapTextAtWordBoundary(text string, maxWidth int) []string {
 	return lines
 }
 
+// applyHorizontalScroll takes a full-width line, skips `offset` visual characters,
+// then truncates/pads to exactly `viewWidth` visual characters.
+// This enables horizontal scrolling of table content.
+// Handles both plain text and ANSI-styled text.
+func applyHorizontalScroll(line string, offset, viewWidth int) string {
+	if viewWidth <= 0 {
+		return ""
+	}
+
+	lineWidth := lipgloss.Width(line)
+
+	// Apply offset: skip leading characters
+	display := line
+	if offset > 0 {
+		if offset >= lineWidth {
+			// Entire content is scrolled past
+			display = ""
+		} else {
+			// Use ANSI-aware truncation: cut the first `offset` visual chars
+			// by taking the right portion of the string
+			display = ansi.Cut(line, offset, lineWidth)
+		}
+	}
+
+	// Truncate or pad to exact viewWidth
+	displayWidth := lipgloss.Width(display)
+	if displayWidth > viewWidth {
+		display = ansi.Truncate(display, viewWidth, "")
+	} else if displayWidth < viewWidth {
+		display = display + strings.Repeat(" ", viewWidth-displayWidth)
+	}
+
+	return display
+}
+
+// statusColor returns a lipgloss style that colorizes pod/container status values.
+// Green for running/healthy, red for errors, yellow for pending, gray for completed, etc.
+func statusColor(value string) lipgloss.Style {
+	s := strings.ToLower(strings.TrimSpace(value))
+	switch {
+	case s == "running":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // green
+	case s == "succeeded" || s == "completed":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("241")) // gray
+	case s == "pending" || s == "containercreating" || s == "podinitialized" || s == "init" || s == "waiting":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // yellow/orange
+	case s == "failed" || s == "error" || s == "crashloopbackoff" || s == "imagepullbackoff" || s == "errimagepull" || s == "oomkilled" || s == "terminated":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("203")) // red
+	case s == "terminating" || s == "unknown":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("208")) // orange
+	default:
+		return lipgloss.NewStyle()
+	}
+}
+
+// isStatusColumn returns true if the column title represents a status/phase field.
+func isStatusColumn(title string) bool {
+	t := strings.ToLower(title)
+	return t == "phase" || t == "status"
+}
+
 // updateTableData updates the table rows based on the current page and data.
 func (m *Model) updateTableData() {
 	if m.currentGVR.Resource == k8s.ResourceLogs && m.logLines != nil {
@@ -306,6 +367,9 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 	}
 
 	headerText := fmt.Sprintf(" %s [%s] (%d) ", k8s.FormatGVR(m.currentGVR), nsDisplay, len(m.resources))
+	if m.horizontalOffset > 0 {
+		headerText = fmt.Sprintf(" %s [%s] (%d) ◀ scroll:%d ", k8s.FormatGVR(m.currentGVR), nsDisplay, len(m.resources), m.horizontalOffset)
+	}
 	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 
 	borderColor := lipgloss.Color("240")
@@ -330,24 +394,62 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 	b.WriteString("\n")
 
 	// Render column headers manually (skip for logs, describe, and yaml views as they don't need columns)
+	// We need to compute effective column widths first (accounting for cell overflow)
+	// so that headers and data rows use the same widths and stay aligned.
+	rows := m.table.Rows()
+
+	// Calculate effective column widths: max of defined width and widest cell in that column
+	effectiveWidths := make([]int, len(columns))
+	for i, col := range columns {
+		effectiveWidths[i] = col.Width
+	}
+	for _, row := range rows {
+		for i, cell := range row {
+			if i >= len(effectiveWidths) {
+				break
+			}
+			cellWidth := runewidth.StringWidth(cell)
+			if cellWidth > effectiveWidths[i] {
+				effectiveWidths[i] = cellWidth
+			}
+		}
+	}
+
+	// Calculate the total content width using effective widths
+	maxContentWidth := 0
+	for i, w := range effectiveWidths {
+		if i > 0 {
+			maxContentWidth++ // column separator space
+		}
+		maxContentWidth += w
+	}
+
+	// Clamp horizontal offset so we can't scroll past the content
+	maxOffset := maxContentWidth - tableWidth
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if m.horizontalOffset > maxOffset {
+		m.horizontalOffset = maxOffset
+	}
+
 	if m.currentGVR.Resource != k8s.ResourceLogs && m.currentGVR.Resource != k8s.ResourceDescribe && m.currentGVR.Resource != k8s.ResourceYaml {
-		headerLine := ""
+		// Build full header line with each column padded to its effective width
+		fullHeaderLine := ""
 		for i, col := range columns {
 			if i > 0 {
-				headerLine += " "
+				fullHeaderLine += " "
 			}
-			// Truncate or pad to exact width
 			title := col.Title
-			if col.Width <= 0 {
-				continue
+			titleWidth := runewidth.StringWidth(title)
+			if titleWidth < effectiveWidths[i] {
+				title = title + strings.Repeat(" ", effectiveWidths[i]-titleWidth)
 			}
-			if len(title) > col.Width {
-				title = title[:col.Width]
-			} else if len(title) < col.Width {
-				title = title + strings.Repeat(" ", col.Width-len(title))
-			}
-			headerLine += title
+			fullHeaderLine += title
 		}
+
+		// Apply horizontal scroll to header
+		headerLine := applyHorizontalScroll(fullHeaderLine, m.horizontalOffset, tableWidth)
 
 		headerLineStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
 		b.WriteString(borderStyle.Render("│"))
@@ -468,30 +570,38 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 	b.WriteString("\n")
 
 	// Render data rows
-	rows := m.table.Rows()
 	selectedRow := m.table.Cursor()
 	selectedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Background(lipgloss.Color("57"))
 	normalStyle := lipgloss.NewStyle()
 
 	for idx, row := range rows {
-		rowLine := ""
+		isSelected := idx == selectedRow
+
+		// Build the full row with each cell padded to its effective width
+		// Cells that overflow their defined column width are kept at full length
+		fullRowLine := ""
 		for i, cell := range row {
 			if i > 0 {
-				rowLine += " "
+				fullRowLine += " "
 			}
-			// Truncate or pad to exact width (ANSI-aware)
 			cellText := cell
-			visualWidth := lipgloss.Width(cellText)
 
-			if visualWidth > columns[i].Width {
-				// Truncate with ANSI-awareness
-				cellText = ansi.Truncate(cellText, columns[i].Width, "…")
-			} else if visualWidth < columns[i].Width {
-				// Pad based on visual width
-				cellText = cellText + strings.Repeat(" ", columns[i].Width-visualWidth)
+			// Colorize status/phase columns (skip for selected row so highlight extends fully)
+			if !isSelected && i < len(columns) && isStatusColumn(columns[i].Title) {
+				style := statusColor(cell)
+				cellText = style.Render(cell)
 			}
-			rowLine += cellText
+
+			cellWidth := lipgloss.Width(cellText)
+			if i < len(effectiveWidths) && cellWidth < effectiveWidths[i] {
+				// Pad to effective column width
+				cellText = cellText + strings.Repeat(" ", effectiveWidths[i]-cellWidth)
+			}
+			fullRowLine += cellText
 		}
+
+		// Apply horizontal offset and truncate to table width
+		displayLine := applyHorizontalScroll(fullRowLine, m.horizontalOffset, tableWidth)
 
 		// Apply selection styling
 		rowStyle := normalStyle
@@ -500,7 +610,7 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 		}
 
 		b.WriteString(borderStyle.Render("│"))
-		b.WriteString(rowStyle.Render(rowLine))
+		b.WriteString(rowStyle.Render(displayLine))
 		b.WriteString(borderStyle.Render("│"))
 		b.WriteString("\n")
 	}
