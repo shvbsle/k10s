@@ -82,6 +82,7 @@ type Model struct {
 	logViewport       *LogViewport
 	logStreamCancel   func()             // Function to cancel active log stream
 	logLinesChan      <-chan k8s.LogLine // Channel for receiving streamed log lines
+	horizontalOffset  int                // Horizontal scroll offset for table view (in characters)
 }
 
 func (m *Model) tryQueueTableUpdate() bool {
@@ -448,7 +449,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case resourcesLoadedMsg:
 		m.resources = msg.resources
-		m.logLines = nil // Clear log lines when loading resources
+		m.logLines = nil       // Clear log lines when loading resources
+		m.horizontalOffset = 0 // Reset horizontal scroll on resource change
 
 		// cleanup the resource watcher when we switch to a new resource view.
 		if m.currentGVR != msg.gvr && m.resourceWatcher != nil {
@@ -1169,13 +1171,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				return m, nil
-			case "h", "left", "pgup":
+			case "left":
+				// Horizontal scroll left
+				if m.horizontalOffset > 0 {
+					m.horizontalOffset -= 4
+					if m.horizontalOffset < 0 {
+						m.horizontalOffset = 0
+					}
+				}
+				return m, nil
+			case "right":
+				// Horizontal scroll right (clamped in renderTableWithHeader)
+				m.horizontalOffset += 4
+				return m, nil
+			case "h", "pgup":
 				if m.paginator.Page > 0 {
 					m.paginator.PrevPage()
 					m.updateTableData()
 				}
 				return m, nil
-			case "l", "right", "pgdown":
+			case "l", "pgdown":
 				// 'l' on a pod resource opens logs directly
 				if msg.String() == "l" && m.currentGVR.Resource == k8s.ResourcePods {
 					if !m.isConnected() {
@@ -1212,7 +1227,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+c":
 				return m, tea.Quit
 			case "0":
-				// Explicitly ignore this key to prevent fallthrough to table
+				// Reset horizontal scroll to beginning
+				m.horizontalOffset = 0
 				return m, nil
 			}
 			// For unhandled keys in normal mode, pass to table

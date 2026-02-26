@@ -42,12 +42,12 @@ func newKeyMap() keyMap {
 			key.WithHelp("↓/j", "down"),
 		),
 		Left: key.NewBinding(
-			key.WithKeys("left", "h", "pgup"),
-			key.WithHelp("←/h", "previous"),
+			key.WithKeys("left"),
+			key.WithHelp("←", "scroll left"),
 		),
 		Right: key.NewBinding(
-			key.WithKeys("right", "l", "pgdown"),
-			key.WithHelp("→/l", "next"),
+			key.WithKeys("right"),
+			key.WithHelp("→", "scroll right"),
 		),
 		GotoTop: key.NewBinding(
 			key.WithKeys("g"),
