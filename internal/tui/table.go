@@ -133,16 +133,16 @@ func applyHorizontalScroll(line string, offset, viewWidth int) string {
 // Green for running/healthy, red for errors, yellow for pending, gray for completed, etc.
 func statusColor(value string) lipgloss.Style {
 	s := strings.ToLower(strings.TrimSpace(value))
-	switch {
-	case s == "running":
+	switch s {
+	case "running":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // green
-	case s == "succeeded" || s == "completed":
+	case "succeeded", "completed":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("241")) // gray
-	case s == "pending" || s == "containercreating" || s == "podinitialized" || s == "init" || s == "waiting":
+	case "pending", "containercreating", "podinitialized", "init", "waiting":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // yellow/orange
-	case s == "failed" || s == "error" || s == "crashloopbackoff" || s == "imagepullbackoff" || s == "errimagepull" || s == "oomkilled" || s == "terminated":
+	case "failed", "error", "crashloopbackoff", "imagepullbackoff", "errimagepull", "oomkilled", "terminated":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("203")) // red
-	case s == "terminating" || s == "unknown":
+	case "terminating", "unknown":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("208")) // orange
 	default:
 		return lipgloss.NewStyle()
@@ -306,9 +306,9 @@ func (m *Model) highlightDescribeLine(line string) string {
 	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
 	highlightedKey := keyStyle.Render(trimmedBefore)
 
-	value      := strings.TrimSpace(strings.TrimPrefix(afterColon, ":"))
+	value := strings.TrimSpace(strings.TrimPrefix(afterColon, ":"))
 	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	dimStyle   := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	coloredValue := highlightDescribeValue(value, afterColon, valueStyle, dimStyle)
 
 	return leadingSpace + highlightedKey + coloredValue

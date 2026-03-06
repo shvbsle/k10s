@@ -28,16 +28,16 @@ func isTimestamp(s string) bool {
 // Kubernetes status word, otherwise returns "". Colors match statusColor() in table.go.
 func describeStatusStyle(value string) string {
 	s := strings.ToLower(value)
-	switch {
-	case s == "running":
+	switch s {
+	case "running":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(value)
-	case s == "succeeded" || s == "completed":
+	case "succeeded", "completed":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(value)
-	case s == "pending" || s == "waiting" || s == "containercreating":
+	case "pending", "waiting", "containercreating":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(value)
-	case s == "failed" || s == "error" || s == "crashloopbackoff" || s == "oomkilled" || s == "terminated":
+	case "failed", "error", "crashloopbackoff", "oomkilled", "terminated":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Render(value)
-	case s == "terminating" || s == "unknown":
+	case "terminating", "unknown":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Render(value)
 	default:
 		return ""
@@ -96,17 +96,17 @@ func (d *DescribeViewport) SetContent(content, resourceName, namespace string) {
 // Keys are cyan+bold. Values are colored by type: status words get color-coded,
 // timestamps are dimmed, and everything else stays gray.
 func highlightYAMLLine(line string) string {
-	keyStyle   := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
 	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	dimStyle   := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 
 	// Check if line has a YAML key pattern
 	match := yamlKeyRegex.FindStringSubmatchIndex(line)
 	if match != nil {
 		// match[0:2] = full match, match[2:4] = indent, match[4:6] = key
-		indent  := line[match[2]:match[3]]
+		indent := line[match[2]:match[3]]
 		keyName := line[match[4]:match[5]]
-		rest    := line[match[1]:] // includes ": value"
+		rest := line[match[1]:] // includes ": value"
 
 		value := strings.TrimSpace(strings.TrimPrefix(rest, ":"))
 		coloredValue := highlightDescribeValue(value, rest, valueStyle, dimStyle)
