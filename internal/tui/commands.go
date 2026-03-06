@@ -205,6 +205,13 @@ func (m *Model) loadResourcesWithNamespace(gvr schema.GroupVersionResource, name
 	}
 }
 
+func (m *Model) stopResourceWatcher() {
+	if m.resourceWatcher != nil {
+		m.resourceWatcher.Stop()
+		m.resourceWatcher = nil
+	}
+}
+
 func (m *Model) watchResources(gvr schema.GroupVersionResource, namespace string) tea.Cmd {
 	return func() tea.Msg {
 		// we dont need to setup the watcher.
@@ -221,6 +228,12 @@ func (m *Model) watchResources(gvr schema.GroupVersionResource, namespace string
 		m.resourceWatcher = w
 
 		go func() {
+			defer func() {
+				// Clear the watcher reference when the goroutine exits so a
+				// new watcher can be started (e.g. after watch timeout/expiry).
+				m.resourceWatcher = nil
+			}()
+
 			for e := range w.ResultChan() {
 				obj, ok := e.Object.(*unstructured.Unstructured)
 				if !ok {
