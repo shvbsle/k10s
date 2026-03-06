@@ -15,6 +15,51 @@ import (
 // Examples: "Namespace:", "Service Account:", "Node-Selectors:"
 var yamlKeyRegex = regexp.MustCompile(`^(\s*)([A-Za-z0-9][A-Za-z0-9_ -]*):`)
 
+// timestampRegex matches common timestamp formats in kubectl describe output.
+// Examples: "2024-01-15T10:30:00Z", "Mon, 15 Jul 2024 10:30:00"
+var timestampRegex = regexp.MustCompile(`\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}`)
+
+// isTimestamp returns true if the string looks like a timestamp.
+func isTimestamp(s string) bool {
+	return timestampRegex.MatchString(s)
+}
+
+// describeStatusStyle returns a lipgloss-rendered string if value is a known
+// Kubernetes status word, otherwise returns "". Colors match statusColor() in table.go.
+func describeStatusStyle(value string) string {
+	s := strings.ToLower(value)
+	switch {
+	case s == "running":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(value)
+	case s == "succeeded" || s == "completed":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(value)
+	case s == "pending" || s == "waiting" || s == "containercreating":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(value)
+	case s == "failed" || s == "error" || s == "crashloopbackoff" || s == "oomkilled" || s == "terminated":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Render(value)
+	case s == "terminating" || s == "unknown":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Render(value)
+	default:
+		return ""
+	}
+}
+
+// highlightDescribeValue colors the value portion of a describe key:value line.
+// Status words get color-coded, timestamps get dimmed, everything else stays gray.
+func highlightDescribeValue(value, rawRest string, valueStyle, dimStyle lipgloss.Style) string {
+	trimmed := strings.TrimSpace(value)
+
+	if styled := describeStatusStyle(trimmed); styled != "" {
+		return " " + styled
+	}
+
+	if isTimestamp(trimmed) {
+		return dimStyle.Render(rawRest)
+	}
+
+	return valueStyle.Render(rawRest)
+}
+
 // DescribeViewport wraps a viewport for scrollable describe output
 type DescribeViewport struct {
 	viewport        viewport.Model
@@ -47,20 +92,26 @@ func (d *DescribeViewport) SetContent(content, resourceName, namespace string) {
 	d.updateRenderedContent()
 }
 
-// highlightYAMLLine applies syntax highlighting to a single line
+// highlightYAMLLine applies syntax highlighting to a single line.
+// Keys are cyan+bold. Values are colored by type: status words get color-coded,
+// timestamps are dimmed, and everything else stays gray.
 func highlightYAMLLine(line string) string {
-	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	keyStyle   := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
 	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	dimStyle   := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 
 	// Check if line has a YAML key pattern
 	match := yamlKeyRegex.FindStringSubmatchIndex(line)
 	if match != nil {
 		// match[0:2] = full match, match[2:4] = indent, match[4:6] = key
-		indent := line[match[2]:match[3]]
+		indent  := line[match[2]:match[3]]
 		keyName := line[match[4]:match[5]]
-		rest := line[match[1]:]
+		rest    := line[match[1]:] // includes ": value"
 
-		return indent + keyStyle.Render(keyName+":") + valueStyle.Render(rest)
+		value := strings.TrimSpace(strings.TrimPrefix(rest, ":"))
+		coloredValue := highlightDescribeValue(value, rest, valueStyle, dimStyle)
+
+		return indent + keyStyle.Render(keyName+":") + coloredValue
 	}
 
 	// No key found, render as plain value

@@ -306,7 +306,12 @@ func (m *Model) highlightDescribeLine(line string) string {
 	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
 	highlightedKey := keyStyle.Render(trimmedBefore)
 
-	return leadingSpace + highlightedKey + afterColon
+	value      := strings.TrimSpace(strings.TrimPrefix(afterColon, ":"))
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	dimStyle   := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	coloredValue := highlightDescribeValue(value, afterColon, valueStyle, dimStyle)
+
+	return leadingSpace + highlightedKey + coloredValue
 }
 
 // formatLogLine formats a single log line for table display with optional wrapping.
