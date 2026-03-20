@@ -783,6 +783,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle log view input - pass to log viewport
 		// Only handle when NOT in command mode
 		if m.currentGVR.Resource == k8s.ResourceLogs && m.viewMode != ViewModeCommand {
+			// When filter is active, route all input through the log viewport's filter handler
+			if m.logViewport.FilterActive() {
+				m.logViewport, cmd = m.logViewport.Update(msg)
+				return m, cmd
+			}
 			switch msg.String() {
 			case "esc", "escape":
 				// Stop log stream and go back
@@ -804,6 +809,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.commandErr = ""
 				m.commandSuccess = ""
 				return m, nil
+			case "/":
+				cmd = m.logViewport.ActivateFilter()
+				return m, cmd
 			case "n":
 				m.logViewport.ToggleLineNumbers()
 				return m, nil
