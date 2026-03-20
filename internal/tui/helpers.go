@@ -66,6 +66,8 @@ func (m *Model) updateKeysForResourceType() {
 	isPods := m.currentGVR.Resource == k8s.ResourcePods
 	isContainers := m.currentGVR.Resource == k8s.ResourceContainers
 	m.keys.Shell.SetEnabled(isPods || isContainers)
+
+	m.keys.FilterLogs.SetEnabled(isLogs)
 }
 
 // getLogPodName returns the pod name from navigation history for the current log view
