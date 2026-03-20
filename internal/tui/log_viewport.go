@@ -71,6 +71,10 @@ func (l *LogViewport) SetContent(lines []k8s.LogLine, podName, containerName, na
 	l.podName = podName
 	l.containerName = containerName
 	l.namespace = namespace
+	l.filterText = ""
+	l.filterActive = false
+	l.filterInput.SetValue("")
+	l.matchCount = 0
 	l.updateRenderedContent()
 
 	if l.autoScroll {
