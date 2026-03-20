@@ -28,6 +28,8 @@ type keyMap struct {
 	YamlView key.Binding
 	Edit     key.Binding
 	Shell    key.Binding
+	// Filter/search
+	FilterLogs key.Binding
 }
 
 // newKeyMap creates a new keyMap with all bindings configured
@@ -120,6 +122,10 @@ func newKeyMap() keyMap {
 		Shell: key.NewBinding(
 			key.WithKeys("s"),
 			key.WithHelp("s", "shell"),
+		),
+		FilterLogs: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "filter"),
 		),
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -35,6 +36,10 @@ type LogViewport struct {
 	logLines        []k8s.LogLine
 	maxBufferSize   int
 	totalLines      int // Total lines received (for accurate line numbering after trimming)
+	filterText      string
+	filterActive    bool
+	filterInput     textinput.Model
+	matchCount      int
 }
 
 // NewLogViewport creates a new log viewport
@@ -44,6 +49,9 @@ func NewLogViewport() *LogViewport {
 		viewport.WithHeight(20),
 	)
 
+	fi := textinput.New()
+	fi.Placeholder = "filter logs..."
+
 	return &LogViewport{
 		viewport:        vp,
 		showLineNumbers: false,
@@ -52,6 +60,7 @@ func NewLogViewport() *LogViewport {
 		wordWrap:        false,
 		maxBufferSize:   DefaultMaxLogBuffer,
 		logLines:        make([]k8s.LogLine, 0),
+		filterInput:     fi,
 	}
 }
 
@@ -62,6 +71,10 @@ func (l *LogViewport) SetContent(lines []k8s.LogLine, podName, containerName, na
 	l.podName = podName
 	l.containerName = containerName
 	l.namespace = namespace
+	l.filterText = ""
+	l.filterActive = false
+	l.filterInput.SetValue("")
+	l.matchCount = 0
 	l.updateRenderedContent()
 
 	if l.autoScroll {
@@ -106,7 +119,8 @@ func (l *LogViewport) GetTailLines() int {
 	return tailLines
 }
 
-// updateRenderedContent renders the log content with optional line numbers and timestamps
+// updateRenderedContent renders the log content with optional line numbers and timestamps.
+// When a filter is active, only matching lines are shown with matches highlighted.
 func (l *LogViewport) updateRenderedContent() {
 	if len(l.logLines) == 0 {
 		l.viewport.SetContent(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("No logs available"))
@@ -116,16 +130,28 @@ func (l *LogViewport) updateRenderedContent() {
 	lineNumStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	timestampStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	contentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	matchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226")).Bold(true)
 
 	var rendered strings.Builder
 	// Calculate the offset for line numbers when buffer has been trimmed
 	lineNumOffset := l.totalLines - len(l.logLines)
+	matchCount := 0
+	renderedCount := 0
 
 	for i, line := range l.logLines {
+		if l.filterText != "" && !strings.Contains(line.Content, l.filterText) {
+			continue
+		}
+		matchCount++
+
+		if renderedCount > 0 {
+			rendered.WriteString("\n")
+		}
+		renderedCount++
+
 		if l.showLineNumbers {
 			actualLineNum := lineNumOffset + i + 1
-			lineNumStr := lineNumStyle.Render(fmt.Sprintf("%6d ", actualLineNum))
-			rendered.WriteString(lineNumStr)
+			rendered.WriteString(lineNumStyle.Render(fmt.Sprintf("%6d ", actualLineNum)))
 		}
 
 		if l.showTimestamps && line.Timestamp != "" {
@@ -134,16 +160,40 @@ func (l *LogViewport) updateRenderedContent() {
 
 		content := line.Content
 		if l.wordWrap && l.width > 0 {
-			content = l.wrapText(content, l.width-10) // Account for line numbers and padding
+			content = l.wrapText(content, l.width-10)
 		}
-		rendered.WriteString(contentStyle.Render(content))
 
-		if i < len(l.logLines)-1 {
-			rendered.WriteString("\n")
+		if l.filterText != "" {
+			rendered.WriteString(highlightMatches(content, l.filterText, contentStyle, matchStyle))
+		} else {
+			rendered.WriteString(contentStyle.Render(content))
 		}
 	}
 
-	l.viewport.SetContent(rendered.String())
+	l.matchCount = matchCount
+	if rendered.Len() == 0 {
+		l.viewport.SetContent(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("No matching lines"))
+	} else {
+		l.viewport.SetContent(rendered.String())
+	}
+}
+
+// highlightMatches renders content with occurrences of term highlighted.
+func highlightMatches(content, term string, base, highlight lipgloss.Style) string {
+	var b strings.Builder
+	for {
+		idx := strings.Index(content, term)
+		if idx < 0 {
+			b.WriteString(base.Render(content))
+			break
+		}
+		if idx > 0 {
+			b.WriteString(base.Render(content[:idx]))
+		}
+		b.WriteString(highlight.Render(content[idx : idx+len(term)]))
+		content = content[idx+len(term):]
+	}
+	return b.String()
 }
 
 // wrapText wraps text to the specified width
@@ -164,6 +214,20 @@ func (l *LogViewport) wrapText(text string, width int) string {
 
 // Update handles input for the log viewport
 func (l *LogViewport) Update(msg tea.Msg) (*LogViewport, tea.Cmd) {
+	// When filter input is active, route key messages to it
+	if l.filterActive {
+		if km, ok := msg.(tea.KeyMsg); ok {
+			switch km.String() {
+			case "esc":
+				l.ClearFilter()
+				return l, nil
+			default:
+				return l.UpdateFilter(msg)
+			}
+		}
+		return l.UpdateFilter(msg)
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
@@ -214,19 +278,75 @@ func (l *LogViewport) View() string {
 		autoScrollIndicator = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(" [PAUSED]")
 	}
 
-	header := titleStyle.Render(title) + scrollInfo + autoScrollIndicator
+	// Filter match indicator
+	filterIndicator := ""
+	if l.filterText != "" {
+		if l.matchCount > 0 {
+			filterIndicator = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(fmt.Sprintf(" [%d matches]", l.matchCount))
+		} else {
+			filterIndicator = lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Render(" [no matches]")
+		}
+	}
+
+	header := titleStyle.Render(title) + scrollInfo + autoScrollIndicator + filterIndicator
 
 	// Build footer with hints
 	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
-	footer := keyStyle.Render("↑↓/jk") + hintStyle.Render(" scroll  ") +
-		keyStyle.Render("g/G") + hintStyle.Render(" top/bottom  ") +
-		keyStyle.Render("n") + hintStyle.Render(" line#  ") +
-		keyStyle.Render("t") + hintStyle.Render(" time  ") +
-		keyStyle.Render("s") + hintStyle.Render(" tail  ") +
-		keyStyle.Render("w") + hintStyle.Render(" wrap  ") +
-		keyStyle.Render("esc") + hintStyle.Render(" back")
+	var footer string
+	if l.filterActive {
+		footer = keyStyle.Render("/") + hintStyle.Render(" ") + l.filterInput.View() +
+			hintStyle.Render("   ") + keyStyle.Render("esc") + hintStyle.Render(" clear")
+	} else {
+		footer = keyStyle.Render("↑↓/jk") + hintStyle.Render(" scroll  ") +
+			keyStyle.Render("g/G") + hintStyle.Render(" top/bottom  ") +
+			keyStyle.Render("n") + hintStyle.Render(" line#  ") +
+			keyStyle.Render("t") + hintStyle.Render(" time  ") +
+			keyStyle.Render("s") + hintStyle.Render(" tail  ") +
+			keyStyle.Render("/") + hintStyle.Render(" filter  ") +
+			keyStyle.Render("w") + hintStyle.Render(" wrap  ") +
+			keyStyle.Render("esc") + hintStyle.Render(" back")
+	}
 
 	return header + "\n" + l.viewport.View() + "\n" + footer
+}
+
+// SetFilter applies a filter to the log view, showing only matching lines.
+func (l *LogViewport) SetFilter(text string) {
+	l.filterText = text
+	l.updateRenderedContent()
+	if l.autoScroll {
+		l.viewport.GotoBottom()
+	}
+}
+
+// ClearFilter removes the active filter and closes the filter input.
+func (l *LogViewport) ClearFilter() {
+	l.filterText = ""
+	l.filterActive = false
+	l.filterInput.SetValue("")
+	l.filterInput.Blur()
+	l.matchCount = 0
+	l.updateRenderedContent()
+}
+
+// ActivateFilter opens the filter input bar.
+func (l *LogViewport) ActivateFilter() tea.Cmd {
+	l.filterActive = true
+	return l.filterInput.Focus()
+}
+
+// FilterActive returns whether the filter input is currently open.
+func (l *LogViewport) FilterActive() bool { return l.filterActive }
+
+// FilterText returns the current filter string.
+func (l *LogViewport) FilterText() string { return l.filterText }
+
+// UpdateFilter passes a message to the filter input and updates the filter from its value.
+func (l *LogViewport) UpdateFilter(msg tea.Msg) (*LogViewport, tea.Cmd) {
+	var cmd tea.Cmd
+	l.filterInput, cmd = l.filterInput.Update(msg)
+	l.SetFilter(l.filterInput.Value())
+	return l, cmd
 }
 
 // Toggle methods
