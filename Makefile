@@ -1,6 +1,7 @@
 BINARY:=k10s
 PKG:=./...
 GO:=go
+MOD:=github.com/shvbsle/k10s
 
 .PHONY: all build run test lint fmt vet check snapshot release version tidy help dev
 
@@ -21,7 +22,7 @@ run: build ## Run k10s
 	./bin/$(BINARY)
 
 test: ## Test k10s
-	$(GO) test -race $(PKG) -cover
+	$(GO) test -race -count=1 -timeout=120s $(PKG) -cover
 
 fmt: ## Format code
 	$(GO) fmt $(PKG)
