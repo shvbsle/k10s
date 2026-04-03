@@ -27,7 +27,7 @@ import (
 )
 
 // Version is the current version of k10s.
-const Version = "v0.1.0"
+var Version = "dev"
 
 // ViewMode represents the current input mode of the TUI.
 type ViewMode int
