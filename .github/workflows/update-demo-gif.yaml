@@ -42,6 +42,8 @@ jobs:
 
       - name: Install VHS
         run: go install github.com/charmbracelet/vhs@latest
+        env:
+          GOTOOLCHAIN: auto
 
       - name: Generate demo GIF
         run: vhs assets/demo-dark.tape
