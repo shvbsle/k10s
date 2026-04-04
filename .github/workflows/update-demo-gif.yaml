@@ -1,0 +1,61 @@
+name: Update Demo GIF
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  update-demo-gif:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Build k10s
+        run: go build -o /usr/local/bin/k10s ./cmd/k10s
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: k10s-demo
+
+      - name: Deploy sample workloads
+        run: |
+          kubectl create deployment demo-app --image=nginx:alpine --replicas=10
+          kubectl rollout status deployment/demo-app --timeout=120s
+
+      - name: Install VHS dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg
+          sudo curl -sL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64 \
+            -o /usr/local/bin/ttyd
+          sudo chmod +x /usr/local/bin/ttyd
+
+      - name: Install VHS
+        run: go install github.com/charmbracelet/vhs@latest
+
+      - name: Generate demo GIF
+        run: vhs assets/demo-dark.tape
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update demo GIF for latest release"
+          title: "chore: update demo GIF"
+          body: |
+            Automatically regenerated `assets/k10s-demo-dark.gif` after the latest release.
+
+            Triggered by: `${{ github.event_name }}`
+          branch: chore/update-demo-gif
+          delete-branch: true
+          add-paths: assets/k10s-demo-dark.gif
