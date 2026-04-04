@@ -9,7 +9,7 @@
 
 Built with Go + Bubble Tea.
 
-![asciicast](./assets/k10s-demo.gif)
+![asciicast](./assets/k10s-demo-dark.gif)
 
 ## Features
 
