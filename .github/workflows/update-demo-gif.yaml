@@ -20,7 +20,7 @@ jobs:
           go-version-file: 'go.mod'
 
       - name: Build k10s
-        run: go build -o /usr/local/bin/k10s ./cmd/k10s
+        run: go build -o "$(go env GOPATH)/bin/k10s" ./cmd/k10s
 
       - name: Create kind cluster
         uses: helm/kind-action@v1
@@ -49,6 +49,7 @@ jobs:
         run: vhs assets/demo-dark.tape
         env:
           KUBECONFIG: ${{ env.KUBECONFIG }}
+          PATH: ${{ env.PATH }}
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
