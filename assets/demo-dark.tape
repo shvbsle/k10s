@@ -15,7 +15,8 @@ Set Framerate 30
 # Launch k10s
 Type "k10s"
 Enter
-Sleep 4s
+Wait /Running/
+Sleep 500ms
 
 # Scroll down through pods
 Down 2

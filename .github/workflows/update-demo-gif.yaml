@@ -47,6 +47,8 @@ jobs:
 
       - name: Generate demo GIF
         run: vhs assets/demo-dark.tape
+        env:
+          KUBECONFIG: ${{ env.KUBECONFIG }}
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
