@@ -29,7 +29,7 @@ func loadConfigLegacy() (*Config, error) {
 	file, err := os.Open(configPath)
 	if err != nil {
 		// Config file doesn't exist, return defaults
-		return cfg, nil
+		return nil, err
 	}
 	defer func() {
 		_ = file.Close() // Ignore close error on read-only file

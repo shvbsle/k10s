@@ -730,6 +730,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// top-level exit early.
+		if msg.String() == "ctrl+c" {
+			m.cleanup()
+			return m, tea.Quit
+		}
+
 		// Handle help modal input first if visible
 		if m.helpModal.IsVisible() {
 			switch msg.String() {
@@ -746,8 +752,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle describe/yaml view input - pass to viewport
 		// Only handle when NOT in command mode (let command mode handle its own input)
 		if (m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceYaml) && m.viewMode != ViewModeCommand {
-			switch msg.String() {
-			case "esc", "escape":
+			switch key := msg.String(); {
+			case m.config.KeyBind.For(config.ActionEscape, key):
 				// Go back from describe view
 				memento := m.navigationHistory.Pop()
 				if memento != nil {
@@ -756,23 +762,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.loadResources(k8s.ResourcePods)
 				}
 				return m, nil
-			case "?":
+			case m.config.KeyBind.For(config.ActionHelp, key):
 				m.helpModal.SetContent(m.BuildHelpContent())
 				m.helpModal.Toggle()
 				return m, nil
-			case ":":
+			case m.config.KeyBind.For(config.ActionCommand, key):
 				m.viewMode = ViewModeCommand
 				m.commandInput.Focus()
 				m.commandErr = ""
 				m.commandSuccess = ""
 				return m, nil
-			case "n":
-				// Toggle line numbers
+			case m.config.KeyBind.For(config.ActionToggleLineNumbers, key):
 				m.describeViewport.ToggleLineNumbers()
 				m.describeView.ShowLineNumbers = m.describeViewport.ShowLineNumbers()
 				return m, nil
-			case "ctrl+c":
-				return m, tea.Quit
 			default:
 				// Pass other keys to the describe viewport for navigation
 				m.describeViewport, cmd = m.describeViewport.Update(msg)
@@ -788,8 +791,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.logViewport, cmd = m.logViewport.Update(msg)
 				return m, cmd
 			}
-			switch msg.String() {
-			case "esc", "escape":
+			switch key := msg.String(); {
+			case m.config.KeyBind.For(config.ActionEscape, key):
 				// Stop log stream and go back
 				m.stopLogStream()
 				memento := m.navigationHistory.Pop()
@@ -799,35 +802,35 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.loadResources(k8s.ResourcePods)
 				}
 				return m, nil
-			case "?":
+			case m.config.KeyBind.For(config.ActionHelp, key):
 				m.helpModal.SetContent(m.BuildHelpContent())
 				m.helpModal.Toggle()
 				return m, nil
-			case ":":
+			case m.config.KeyBind.For(config.ActionCommand, key):
 				m.viewMode = ViewModeCommand
 				m.commandInput.Focus()
 				m.commandErr = ""
 				m.commandSuccess = ""
 				return m, nil
-			case "/":
+			case m.config.KeyBind.For(config.ActionSearch, key):
 				cmd = m.logViewport.ActivateFilter()
 				return m, cmd
-			case "n":
+			case m.config.KeyBind.For(config.ActionToggleLineNumbers, key):
 				m.logViewport.ToggleLineNumbers()
 				return m, nil
-			case "t":
+			case m.config.KeyBind.For(config.ActionToggleTimestamps, key):
 				m.logViewport.ToggleTimestamps()
 				m.logView.ShowTimestamps = m.logViewport.ShowTimestamps()
 				return m, nil
-			case "s":
+			case m.config.KeyBind.For(config.ActionToggleAutoScroll, key):
 				m.logViewport.ToggleAutoScroll()
 				m.logView.Autoscroll = m.logViewport.AutoScroll()
 				return m, nil
-			case "w":
+			case m.config.KeyBind.For(config.ActionToggleWordWrap, key):
 				m.logViewport.ToggleWordWrap()
 				m.logView.WrapText = m.logViewport.WordWrap()
 				return m, nil
-			case "f":
+			case m.config.KeyBind.For(config.ActionToggleFullsreen, key):
 				m.logView.Fullscreen = !m.logView.Fullscreen
 				// Recalculate viewport size
 				var headerHeight int
@@ -839,9 +842,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				logHeight := max(m.viewHeight-headerHeight, 10)
 				m.logViewport.SetSize(m.viewWidth-2, logHeight)
 				return m, nil
-			case "ctrl+c":
-				m.stopLogStream()
-				return m, tea.Quit
 			default:
 				// Pass other keys to the log viewport for navigation (j/k, g/G, etc.)
 				m.logViewport, cmd = m.logViewport.Update(msg)
@@ -894,19 +894,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		default:
 			// Handle keys explicitly to prevent double-processing
-			switch msg.String() {
-			case "?":
+			switch key := msg.String(); {
+			case m.config.KeyBind.For(config.ActionHelp, key):
 				m.helpModal.SetContent(m.BuildHelpContent())
 				m.helpModal.Toggle()
 				return m, nil
-			case ":":
+			case m.config.KeyBind.For(config.ActionCommand, key):
 				m.viewMode = ViewModeCommand
 				m.commandInput.Focus()
 				// Clear any previous error or success messages when entering command mode
 				m.commandErr = ""
 				m.commandSuccess = ""
 				return m, nil
-			case "enter":
+			case m.config.KeyBind.For(config.ActionSubmit, key):
 				// Special handling for contexts view
 				if m.currentGVR.Resource == "contexts" {
 					if len(m.resources) == 0 {
@@ -972,7 +972,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.navigationHistory.Push(memento)
 
 				return m, m.commandWithPreflights(m.drillDown(selectedResource), m.requireConnection)
-			case "esc", "escape":
+			case m.config.KeyBind.For(config.ActionEscape, key):
 				memento := m.navigationHistory.Pop()
 				if memento != nil {
 					m.restoreFromMemento(memento)
@@ -980,7 +980,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.loadResources(k8s.ResourcePods)
 				}
 				return m, nil
-			case "f":
+			case m.config.KeyBind.For(config.ActionToggleFullsreen, key):
 				switch m.currentGVR.Resource {
 				case k8s.ResourceLogs:
 					m.logView.Fullscreen = !m.logView.Fullscreen
@@ -988,7 +988,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.describeView.Fullscreen = !m.describeView.Fullscreen
 				}
 				return m, nil
-			case "s":
+			case m.config.KeyBind.For(config.ActionToggleAutoScroll, key):
 				if m.currentGVR.Resource == k8s.ResourceLogs {
 					m.logView.Autoscroll = !m.logView.Autoscroll
 					if m.logView.Autoscroll {
@@ -1027,13 +1027,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.commandWithPreflights(m.execIntoContainer(), m.requireConnection)
 				}
 				return m, nil
-			case "t":
+			case m.config.KeyBind.For(config.ActionToggleTimestamps, key):
 				if m.currentGVR.Resource == k8s.ResourceLogs {
 					m.logView.ShowTimestamps = !m.logView.ShowTimestamps
 					m.updateTableData()
 				}
 				return m, nil
-			case "w":
+			case m.config.KeyBind.For(config.ActionToggleWordWrap, key):
 				switch m.currentGVR.Resource {
 				case k8s.ResourceLogs:
 					m.logView.WrapText = !m.logView.WrapText
@@ -1043,13 +1043,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.updateTableData()
 				}
 				return m, nil
-			case "n":
+			case m.config.KeyBind.For(config.ActionToggleLineNumbers, key):
 				if m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceYaml {
 					m.describeView.ShowLineNumbers = !m.describeView.ShowLineNumbers
 					m.updateTableData()
 				}
 				return m, nil
-			case "y":
+			case m.config.KeyBind.For(config.ActionResourceYaml, key):
 				// Show YAML for the currently selected resource
 				if m.currentGVR.Resource == k8s.ResourceLogs ||
 					m.currentGVR.Resource == k8s.ResourceDescribe ||
@@ -1066,7 +1066,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.getResourceYaml(),
 					m.requireConnection,
 				)
-			case "e":
+			case m.config.KeyBind.For(config.ActionResourceEdit, key):
 				// Edit the currently selected resource
 				if m.currentGVR.Resource == k8s.ResourceLogs ||
 					m.currentGVR.Resource == k8s.ResourceDescribe ||
@@ -1081,7 +1081,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// Edit command directly returns tea.ExecProcess, no need for commandWithPreflights
 				return m, m.editCurrentResource()
-			case "d":
+			case m.config.KeyBind.For(config.ActionResourceDescribe, key):
 				// Describe the currently selected resource
 				if m.currentGVR.Resource == k8s.ResourceLogs ||
 					m.currentGVR.Resource == k8s.ResourceDescribe ||
@@ -1097,7 +1097,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.describeCurrentResource(),
 					m.requireConnection,
 				)
-			case "j", "down":
+			case m.config.KeyBind.For(config.ActionNavigateDown, key):
 				// Handle navigation directly to prevent double-processing
 				// Check if at bottom of current page
 				if m.table.Cursor() >= len(m.table.Rows())-1 {
@@ -1111,7 +1111,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.table.MoveDown(1)
 				}
 				return m, nil
-			case "k", "up":
+			case m.config.KeyBind.For(config.ActionNavigateUp, key):
 				// Handle navigation directly to prevent double-processing
 				// Check if at top of current page
 				if m.table.Cursor() <= 0 {
@@ -1125,15 +1125,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.table.MoveUp(1)
 				}
 				return m, nil
-			case "J", "shift+down":
+			case m.config.KeyBind.For(config.ActionNavigateBottom, key):
 				// Jump to bottom of current page
 				m.table.GotoBottom()
 				return m, nil
-			case "K", "shift+up":
+			case m.config.KeyBind.For(config.ActionNavigateTop, key):
 				// Jump to top of current page
 				m.table.GotoTop()
 				return m, nil
-			case "g":
+			case m.config.KeyBind.For(config.ActionFirstLine, key):
 				// Go to first line of first page (absolute first line)
 				// Disable autoscroll when manually navigating to top
 				if m.currentGVR.Resource == k8s.ResourceLogs {
@@ -1143,7 +1143,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateTableData()
 				m.table.GotoTop()
 				return m, nil
-			case "G":
+			case m.config.KeyBind.For(config.ActionLastLine, key):
 				// Go to last line of last page (absolute last line)
 				switch m.currentGVR.Resource {
 				case k8s.ResourceLogs:
@@ -1179,7 +1179,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				return m, nil
-			case "left":
+			case m.config.KeyBind.For(config.ActionScrollLeft, key):
 				// Horizontal scroll left
 				if m.horizontalOffset > 0 {
 					m.horizontalOffset -= 4
@@ -1188,53 +1188,49 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				return m, nil
-			case "right":
+			case m.config.KeyBind.For(config.ActionScrollRight, key):
 				// Horizontal scroll right (clamped in renderTableWithHeader)
 				m.horizontalOffset += 4
 				return m, nil
-			case "h", "pgup":
+			case m.config.KeyBind.For(config.ActionPagePrevious, key):
 				if m.paginator.Page > 0 {
 					m.paginator.PrevPage()
 					m.updateTableData()
 				}
 				return m, nil
-			case "l", "pgdown":
-				// 'l' on a pod resource opens logs directly
-				if msg.String() == "l" && m.currentGVR.Resource == k8s.ResourcePods {
-					if !m.isConnected() {
-						m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
-						return m, nil
-					}
-					if len(m.resources) == 0 {
-						return m, nil
-					}
-					actualIdx := m.paginator.Page*m.paginator.PerPage + m.table.Cursor()
-					if actualIdx < 0 || actualIdx >= len(m.resources) {
-						return m, nil
-					}
-					selectedResource := m.resources[actualIdx]
-					var selectedName, selectedNamespace string
-					if nameIndex, ok := k8s.NameColumn(m.table.Columns()); ok {
-						selectedName = selectedResource[nameIndex]
-					}
-					if namespaceIndex, ok := k8s.NamespaceColumn(m.table.Columns()); ok {
-						selectedNamespace = selectedResource[namespaceIndex]
-					}
-
-					// Save navigation state
-					memento := m.saveToMemento(selectedName, selectedNamespace)
-					m.navigationHistory.Push(memento)
-
-					return m, m.commandWithPreflights(m.openLogsForPod(selectedName, selectedNamespace), m.requireConnection)
-				}
+			case m.config.KeyBind.For(config.ActionPageNext, key):
 				if m.paginator.Page < m.paginator.TotalPages-1 {
 					m.paginator.NextPage()
 					m.updateTableData()
 				}
 				return m, nil
-			case "ctrl+c":
-				return m, tea.Quit
-			case "0":
+			case m.config.KeyBind.For(config.ActionOpenPodLogs, key) && m.currentGVR.Resource == k8s.ResourcePods:
+				if !m.isConnected() {
+					m.err = fmt.Errorf("not connected to cluster. Use :reconnect")
+					return m, nil
+				}
+				if len(m.resources) == 0 {
+					return m, nil
+				}
+				actualIdx := m.paginator.Page*m.paginator.PerPage + m.table.Cursor()
+				if actualIdx < 0 || actualIdx >= len(m.resources) {
+					return m, nil
+				}
+				selectedResource := m.resources[actualIdx]
+				var selectedName, selectedNamespace string
+				if nameIndex, ok := k8s.NameColumn(m.table.Columns()); ok {
+					selectedName = selectedResource[nameIndex]
+				}
+				if namespaceIndex, ok := k8s.NamespaceColumn(m.table.Columns()); ok {
+					selectedNamespace = selectedResource[namespaceIndex]
+				}
+
+				// Save navigation state
+				memento := m.saveToMemento(selectedName, selectedNamespace)
+				m.navigationHistory.Push(memento)
+
+				return m, m.commandWithPreflights(m.openLogsForPod(selectedName, selectedNamespace), m.requireConnection)
+			case m.config.KeyBind.For(config.ActionResetView, key):
 				// Reset horizontal scroll to beginning
 				m.horizontalOffset = 0
 				return m, nil
@@ -1383,6 +1379,10 @@ func (m *Model) View() tea.View {
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
 	return v
+}
+
+func (m *Model) cleanup() {
+	m.stopLogStream()
 }
 
 // renderBreadcrumb renders the navigation breadcrumb showing the hierarchy path.

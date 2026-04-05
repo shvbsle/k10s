@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -43,22 +44,37 @@ type Config struct {
 	Logo            string          `toml:"logo_string,multiline" comment:"ASCII logo to display in the header."`
 	LogFilePath     string          `toml:"k10s_log_path" comment:"Logging path for k10s. (eg. /var/log/k10s.log)"`
 	PaginationStyle PaginationStyle `toml:"pagination_style"`
+	KeyBind         KeyBind         `toml:"keybinds" comment:"Keybinding overrides."`
 }
 
 // Load reads the k10s configuration file from the default path. If the file
 // doesn't exist or cannot be read, it returns a Config with default values.
 func Load() (*Config, error) {
+	c, err := load()
+	if err != nil {
+		return nil, err
+	}
+	// merge the user's keybinds onto the defaults.
+	c.KeyBind = defaultKeybinds().setOverrides(c.KeyBind)
+	// validate the newly created keybinds.
+	if err := c.KeyBind.validate(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func load() (*Config, error) {
 	c, err := loadConfig()
 	if err == nil {
 		return c, nil
 	}
 
-	// if we failed to load the latest config format, try to load the legacy
-	// config.
-	c, err = loadConfigLegacy()
-	if err == nil {
-		// try to backfill legacy data into the current config.
-		return c, createIfNotExists(*c)
+	// when the new config is missing and the old one might exist, try to load
+	// it and backfill the new config.
+	if errors.Is(err, os.ErrNotExist) {
+		if c, err := loadConfigLegacy(); err == nil {
+			return c, createIfNotExists(*c)
+		}
 	}
 
 	// if we can't load anything, then return defaults.
@@ -68,6 +84,7 @@ func Load() (*Config, error) {
 		Logo:            DefaultLogo,
 		PaginationStyle: PaginationStyleBubbles,
 		LogFilePath:     DefaultLogFilePath,
+		KeyBind:         defaultKeybinds(),
 	}
 
 	return c, createIfNotExists(*c)
