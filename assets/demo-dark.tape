@@ -2,7 +2,7 @@
 Output assets/k10s-demo-dark.gif
 
 Set Shell "zsh"
-Set FontSize 13
+Set FontSize 16
 Set Width 1400
 Set Height 700
 Set Theme "Dracula"
