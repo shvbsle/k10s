@@ -1,26 +1,28 @@
 package config
 
 import (
-	"bufio"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 const (
-	// AutoPageSize indicates that page size should use all available screen space.
+	configFileName = ".k10s.toml"
+)
+
+const (
+	// DefaultAutoPageSize indicates that page size should use all available screen space.
 	// This is the default behavior when no page_size is configured.
-	AutoPageSize = 0
+	DefaultAutoPageSize = 0
 	// DefaultLogTailLines is the default number of log lines to fetch.
 	DefaultLogTailLines = 100
 	// DefaultLogo is the default ASCII art logo displayed in the TUI header.
-	DefaultLogo = ` /\_/\
-( o.o )
- > Y <`
+	DefaultLogo = " /\\_/\\\n( o.o )\n> Y <"
 	// DefaultPaginationStyle is the default pagination display style.
-	DefaultPaginationStyle = "bubbles"
+	DefaultPaginationStyle = PaginationStyleBubbles
+	// DefaultLogFilePath is the default path for k10s logs.
+	DefaultLogFilePath = "k10s.log"
 )
 
 // PaginationStyle represents the style of pagination display
@@ -36,164 +38,81 @@ const (
 // Config holds the user configuration for k10s, including display preferences
 // like page size and the ASCII logo to show in the header.
 type Config struct {
-	MaxPageSize     int
-	LogTailLines    int
-	Logo            string
-	PaginationStyle PaginationStyle
-	LogFilePath     string // Custom log file path (empty means use XDG default)
+	MaxPageSize     int             `toml:"page_size" comment:"Number of items per page in table views.\nSet to \"auto\" to use all available screen space, or set to a specific number."`
+	LogTailLines    int             `toml:"log_tail_lines" comment:"Number of log lines to fetch when viewing container logs."`
+	Logo            string          `toml:"logo_string,multiline" comment:"ASCII logo to display in the header."`
+	LogFilePath     string          `toml:"k10s_log_path" comment:"Logging path for k10s. (eg. /var/log/k10s.log)"`
+	PaginationStyle PaginationStyle `toml:"pagination_style"`
 }
 
-// Load reads the k10s configuration from ~/.k10s.conf. If the file doesn't
-// exist or cannot be read, it returns a Config with default values.
+// Load reads the k10s configuration file from the default path. If the file
+// doesn't exist or cannot be read, it returns a Config with default values.
 func Load() (*Config, error) {
-	cfg := &Config{
-		MaxPageSize:     AutoPageSize, // Default to auto (use all available space)
+	c, err := loadConfig()
+	if err == nil {
+		return c, nil
+	}
+
+	// if we failed to load the latest config format, try to load the legacy
+	// config.
+	c, err = loadConfigLegacy()
+	if err == nil {
+		// try to backfill legacy data into the current config.
+		return c, createIfNotExists(*c)
+	}
+
+	// if we can't load anything, then return defaults.
+	c = &Config{
+		MaxPageSize:     DefaultAutoPageSize,
 		LogTailLines:    DefaultLogTailLines,
 		Logo:            DefaultLogo,
 		PaginationStyle: PaginationStyleBubbles,
+		LogFilePath:     DefaultLogFilePath,
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return cfg, nil // Return defaults if can't get home dir
-	}
-
-	configPath := filepath.Join(home, ".k10s.conf")
-	file, err := os.Open(configPath)
-	if err != nil {
-		// Config file doesn't exist, return defaults
-		return cfg, nil
-	}
-	defer func() {
-		_ = file.Close() // Ignore close error on read-only file
-	}()
-
-	scanner := bufio.NewScanner(file)
-	var logoLines []string
-	inLogo := false
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-
-		if strings.HasPrefix(trimmed, "logo_start") {
-			inLogo = true
-			logoLines = []string{}
-			continue
-		}
-
-		if strings.HasPrefix(trimmed, "logo_end") {
-			inLogo = false
-			cfg.Logo = strings.Join(logoLines, "\n")
-			continue
-		}
-
-		if inLogo {
-			logoLines = append(logoLines, line)
-			continue
-		}
-
-		parts := strings.SplitN(trimmed, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-
-		switch key {
-		// TODO: rename to max_page_size
-		case "page_size":
-			if strings.ToLower(value) == "auto" {
-				cfg.MaxPageSize = AutoPageSize
-			} else if size, err := strconv.Atoi(value); err == nil && size > 0 {
-				cfg.MaxPageSize = size
-			}
-		case "log_tail_lines":
-			if lines, err := strconv.Atoi(value); err == nil && lines > 0 {
-				cfg.LogTailLines = lines
-			}
-		case "pagination_style":
-			switch value {
-			case "bubbles":
-				cfg.PaginationStyle = PaginationStyleBubbles
-			case "verbose":
-				cfg.PaginationStyle = PaginationStyleVerbose
-			}
-		case "k10s_log_path":
-			// Accept the value as-is, will be validated in setupLogging
-			cfg.LogFilePath = value
-		}
-	}
-
-	return cfg, nil
+	return c, createIfNotExists(*c)
 }
 
-// CreateDefaultConfig creates a default configuration file at ~/.k10s.conf
-// if it doesn't already exist. It does not overwrite existing configurations.
-func CreateDefaultConfig() error {
+func loadConfig() (*Config, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.Open(filepath.Join(home, configFileName))
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close() // nolint:errcheck
+
+	var cfg Config
+	return &cfg, toml.NewDecoder(file).Decode(&cfg)
+}
+
+// createIfNotExists creates a configuration file based on given config template
+// if it doesn't already exist.
+func createIfNotExists(config Config) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
 
-	configPath := filepath.Join(home, ".k10s.conf")
+	configPath := filepath.Join(home, configFileName)
 
 	// Don't overwrite existing config
 	if _, err := os.Stat(configPath); err == nil {
 		return nil
 	}
 
-	defaultConfig := `# k10s configuration file
-# Number of items per page in table views
-# Set to "auto" to use all available screen space (default)
-# Or set to a specific number (e.g., 20)
-page_size=auto
+	configData, err := toml.Marshal(config)
+	if err != nil {
+		return err
+	}
 
-# Number of log lines to fetch when viewing container logs
-log_tail_lines=100
-
-# Pagination style: "bubbles" (dots) or "verbose" (text like "Page 1/10")
-# Default: bubbles
-pagination_style=bubbles
-
-# Log file path for k10s internal logs
-# If commented out or empty, logs will be stored in the default XDG state directory:
-#   - macOS: ~/Library/Application Support/k10s/k10s.log
-#   - Linux: ~/.local/state/k10s/k10s.log
-# You can override this with a custom path (supports ~ for home directory)
-# Example: k10s_log_path=/var/log/k10s.log
-# k10s_log_path=
-
-# ASCII logo (between logo_start and logo_end)
-logo_start
- /\_/\
-( o.o )
- > Y <
-logo_end
-`
-
-	return os.WriteFile(configPath, []byte(defaultConfig), 0644)
+	return os.WriteFile(configPath, configData, 0644)
 }
 
 func (c *Config) String() string {
-	return fmt.Sprintf("PageSize: %d\nLogo:\n%s", c.MaxPageSize, c.Logo)
-}
-
-func GetPluginDataDir(pluginName string) (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("could not get user home directory: %w", err)
-	}
-
-	pluginDir := filepath.Join(homeDir, ".k10s", "plugins", pluginName)
-	if err := os.MkdirAll(pluginDir, 0755); err != nil {
-		return "", fmt.Errorf("could not create plugin data directory: %w", err)
-	}
-
-	return pluginDir, nil
+	data, _ := toml.Marshal(c)
+	return string(data)
 }

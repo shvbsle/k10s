@@ -34,8 +34,7 @@ tidy: ## Tidy Go modules
 	$(GO) mod tidy -e
 
 lint: ## Lint code
-	@which golangci-lint > /dev/null || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
-	golangci-lint run
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run
 
 snapshot: ## Create a snapshot release
 	goreleaser release --snapshot --clean

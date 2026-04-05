@@ -8,7 +8,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/shvbsle/k10s/internal/config"
+	"github.com/shvbsle/k10s/internal/plugins"
 )
 
 const (
@@ -30,7 +30,7 @@ type HighScores struct {
 }
 
 func getHighScoresPath() (string, error) {
-	pluginDir, err := config.GetPluginDataDir("kitten")
+	pluginDir, err := plugins.GetPluginDataDir("kitten")
 	if err != nil {
 		return "", err
 	}

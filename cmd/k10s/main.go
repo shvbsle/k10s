@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"os"
 
 	tea "charm.land/bubbletea/v2"
@@ -19,14 +18,13 @@ func main() {
 	logLevelFlag := *flag.String("log-level", "info", "Set log level (debug, info, warn, error)")
 	flag.Parse()
 
-	// Load config first to get log path preference
-	if err := config.CreateDefaultConfig(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not create default config: %v\n", err)
-	}
+	// rudimentory logger used until logging configuration is loaded.
+	setupLogger := log.NewLogger(&log.LoggerConfiguration{Writer: os.Stderr})
+	log.SetDefault(setupLogger)
 
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to load configuration: %v\n", err)
+		setupLogger.Error("failed to load configuration", "error", err)
 		os.Exit(1)
 	}
 
@@ -35,12 +33,12 @@ func main() {
 	}
 
 	if logPath, err := getLogPath(cfg.LogFilePath); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not setup logging: %v\n", err)
+		setupLogger.Warn("could not setup logging", "error", err)
 	} else {
 		f, err := os.OpenFile(logPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not open log file: %v\n", err)
-			return
+			setupLogger.Warn("could not open log file", "error", err)
+			os.Exit(1)
 		}
 
 		// assign the file writer to the logger configuration
@@ -48,8 +46,8 @@ func main() {
 
 		// remember to cleanup the file handle before exiting the program
 		defer func() {
-			if closeErr := f.Close(); closeErr != nil {
-				fmt.Fprintf(os.Stderr, "Warning: could not setup logging: %v\n", err)
+			if err := f.Close(); err != nil {
+				setupLogger.Warn("could not cleanup log file", "error", err)
 			}
 		}()
 	}
