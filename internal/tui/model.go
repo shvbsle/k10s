@@ -410,7 +410,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// When auto (default): minimize header to extend table to command palette
 		// When fixed: use larger header for comfortable viewing with pagination
 		var headerHeight int
-		if m.config.MaxPageSize == config.AutoPageSize || m.config.MaxPageSize == 0 {
+		if m.config.MaxPageSize == config.DefaultAutoPageSize {
 			// Auto mode: account for all non-data-row content
 			// - 1 line: initial newline
 			// - 5 lines: top header (3) + spacing (2)
@@ -434,7 +434,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Dynamic page size calculation:
 		// - If MaxPageSize is 0 (auto/default), use all available tableHeight
 		// - If MaxPageSize is set to a specific number, use it as a ceiling (but never exceed tableHeight)
-		if m.config.MaxPageSize == config.AutoPageSize || m.config.MaxPageSize == 0 {
+		if m.config.MaxPageSize == config.DefaultAutoPageSize {
 			// Auto mode (default): use all available screen space
 			m.paginator.PerPage = tableHeight
 		} else {

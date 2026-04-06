@@ -20,11 +20,11 @@ func makeLogLines(contents []string) []k8s.LogLine {
 // TestFilter_SetFilter checks that only matching lines are kept after SetFilter.
 func TestFilter_SetFilter(t *testing.T) {
 	tests := []struct {
-		name         string
-		lines        []string
-		filter       string
-		wantMatches  int
-		wantNoMatch  bool
+		name        string
+		lines       []string
+		filter      string
+		wantMatches int
+		wantNoMatch bool
 	}{
 		{
 			name:        "all lines match",

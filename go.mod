@@ -13,6 +13,7 @@ require (
 	github.com/gammazero/deque v1.2.1
 	github.com/google/gnostic-models v0.7.1
 	github.com/mattn/go-runewidth v0.0.21
+	github.com/pelletier/go-toml/v2 v2.3.0
 	github.com/samber/lo v1.53.0
 	k8s.io/api v0.35.3
 	k8s.io/apimachinery v0.35.3
