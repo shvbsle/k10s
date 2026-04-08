@@ -44,8 +44,10 @@ jobs:
         env:
           GOTOOLCHAIN: auto
 
-      - name: Generate demo GIF
-        run: vhs assets/demo-dark.tape
+      - name: Generate demo GIFs
+        run: |
+          vhs assets/demo-dark.tape
+          vhs assets/demo-light.tape
         env:
           KUBECONFIG: ${{ env.KUBECONFIG }}
 
@@ -53,12 +55,14 @@ jobs:
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore: update demo GIF for latest release"
-          title: "chore: update demo GIF"
+          commit-message: "chore: update demo GIFs for latest release"
+          title: "chore: update demo GIFs"
           body: |
-            Automatically regenerated `assets/k10s-demo-dark.gif` after the latest release.
+            Automatically regenerated demo GIFs after the latest release.
 
             Triggered by: `${{ github.event_name }}`
-          branch: chore/update-demo-gif
+          branch: chore/update-demo-gif-${{ github.run_id }}
           delete-branch: true
-          add-paths: assets/k10s-demo-dark.gif
+          add-paths: |
+            assets/k10s-demo-dark.gif
+            assets/k10s-demo-light.gif
