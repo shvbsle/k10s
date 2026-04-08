@@ -452,11 +452,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logLines = nil       // Clear log lines when loading resources
 		m.horizontalOffset = 0 // Reset horizontal scroll on resource change
 
-		// cleanup the resource watcher when we switch to a new resource view.
-		if m.currentGVR != msg.gvr && m.resourceWatcher != nil {
-			m.resourceWatcher.Stop()
-			m.resourceWatcher = nil
-		}
+		// Always stop the existing watcher so a fresh one is created for the
+		// new resource/namespace combination.
+		m.stopResourceWatcher()
+
 		m.currentGVR = msg.gvr
 		m.currentNamespace = msg.namespace
 		m.listOptions = msg.listOptions
@@ -666,6 +665,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case contextsLoadedMsg:
+		m.stopResourceWatcher()
 		m.resources = msg.contexts
 		m.logLines = nil
 		m.currentGVR = schema.GroupVersionResource{Resource: "contexts"}
@@ -696,6 +696,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case namespaceLoadedMsg:
+		m.stopResourceWatcher()
 		m.resources = msg.namespaces
 		m.logLines = nil
 		m.currentGVR = schema.GroupVersionResource{Resource: "namespaces"}
@@ -751,11 +752,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Go back from describe view
 				memento := m.navigationHistory.Pop()
 				if memento != nil {
-					m.restoreFromMemento(memento)
+					return m, m.restoreFromMemento(memento)
 				} else {
 					return m, m.loadResources(k8s.ResourcePods)
 				}
-				return m, nil
 			case "?":
 				m.helpModal.SetContent(m.BuildHelpContent())
 				m.helpModal.Toggle()
@@ -794,11 +794,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stopLogStream()
 				memento := m.navigationHistory.Pop()
 				if memento != nil {
-					m.restoreFromMemento(memento)
+					return m, m.restoreFromMemento(memento)
 				} else {
 					return m, m.loadResources(k8s.ResourcePods)
 				}
-				return m, nil
 			case "?":
 				m.helpModal.SetContent(m.BuildHelpContent())
 				m.helpModal.Toggle()
@@ -975,11 +974,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc", "escape":
 				memento := m.navigationHistory.Pop()
 				if memento != nil {
-					m.restoreFromMemento(memento)
+					return m, m.restoreFromMemento(memento)
 				} else {
 					return m, m.loadResources(k8s.ResourcePods)
 				}
-				return m, nil
 			case "f":
 				switch m.currentGVR.Resource {
 				case k8s.ResourceLogs:
@@ -1439,10 +1437,14 @@ func (m *Model) saveToMemento(selectedResourceName, selectedNamespace string) *M
 }
 
 // restoreFromMemento restores the Model's state from a memento.
-func (m *Model) restoreFromMemento(memento *ModelMemento) {
+// Returns a tea.Cmd that restarts the resource watcher for the restored view.
+func (m *Model) restoreFromMemento(memento *ModelMemento) tea.Cmd {
 	if memento == nil {
-		return
+		return nil
 	}
+
+	// Stop any active watcher before restoring state.
+	m.stopResourceWatcher()
 
 	m.resources = memento.resources
 	m.currentGVR = memento.currentGVR
@@ -1468,4 +1470,8 @@ func (m *Model) restoreFromMemento(memento *ModelMemento) {
 	} else {
 		m.table.SetCursor(memento.tableCursor)
 	}
+
+	// Restart the resource watcher for the restored view so live updates
+	// continue flowing in.
+	return m.watchResources(m.currentGVR, m.currentNamespace)
 }
