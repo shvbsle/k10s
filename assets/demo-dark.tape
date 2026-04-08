@@ -1,7 +1,7 @@
 # k10s Demo - Dark Theme (Dracula)
 Output assets/k10s-demo-dark.gif
 
-Set Shell "zsh"
+Set Shell "bash"
 Set FontSize 16
 Set Width 1400
 Set Height 700

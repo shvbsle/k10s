@@ -37,10 +37,7 @@ jobs:
       - name: Install VHS dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y ffmpeg
-          sudo curl -sL https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64 \
-            -o /usr/local/bin/ttyd
-          sudo chmod +x /usr/local/bin/ttyd
+          sudo apt-get install -y ffmpeg ttyd
 
       - name: Install VHS
         run: go install github.com/charmbracelet/vhs@latest
