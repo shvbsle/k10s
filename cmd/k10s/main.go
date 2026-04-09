@@ -18,7 +18,7 @@ func main() {
 	logLevelFlag := *flag.String("log-level", "info", "Set log level (debug, info, warn, error)")
 	flag.Parse()
 
-	// rudimentory logger used until logging configuration is loaded.
+	// rudimentary logger used until logging configuration is loaded.
 	setupLogger := log.NewLogger(&log.LoggerConfiguration{Writer: os.Stderr})
 	log.SetDefault(setupLogger)
 
