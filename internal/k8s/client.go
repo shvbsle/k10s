@@ -233,7 +233,8 @@ func (c *Client) SwitchContext(contextName string) error {
 	return c.Reconnect()
 }
 
-// TODO: get claude/ai to write the doc string
+// GetAvailableNamespaces returns the names of all namespaces in the cluster.
+// Returns an error if the client is not connected or if the API request fails.
 func (c *Client) GetAvailableNamespaces() ([]string, error) {
 	if !c.isConnected || c.clientset == nil {
 		return nil, fmt.Errorf("not connected to cluster")
@@ -255,7 +256,8 @@ func (c *Client) GetAvailableNamespaces() ([]string, error) {
 	return namespaces, nil
 }
 
-// TODO: get claude/ai to write the doc string
+// NamespaceExists reports whether a namespace with the given name exists in the cluster.
+// Returns false (not an error) if the namespace is not found.
 func (c *Client) NamespaceExists(name string) (bool, error) {
 	if !c.isConnected || c.clientset == nil {
 		return false, fmt.Errorf("not connected to cluster")
