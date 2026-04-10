@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/shvbsle/k10s/internal/k8s"
+	"github.com/shvbsle/k10s/internal/log"
 )
 
 var namespacedCache = map[string]bool{}
@@ -16,7 +17,7 @@ func (m *Model) isNamespaced(resource string) bool {
 
 	_, apiResourceLists, err := m.k8sClient.Discovery().ServerGroupsAndResources()
 	if err != nil {
-		// TODO: handle?
+		log.G().Error("failed to fetch server groups and resources", "error", err)
 		return true
 	}
 

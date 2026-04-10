@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/samber/lo"
+	"github.com/shvbsle/k10s/internal/log"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 )
@@ -84,7 +85,7 @@ func GetServerGVRs(discovery discovery.DiscoveryInterface) []schema.GroupVersion
 
 	apiResourceLists, err := discovery.ServerPreferredResources()
 	if err != nil {
-		// TODO: handle?
+		log.G().Error("failed to fetch server preferred resources", "error", err)
 		return suggestions
 	}
 
