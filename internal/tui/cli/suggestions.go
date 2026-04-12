@@ -83,8 +83,11 @@ func GetServerGVRs(discovery discovery.DiscoveryInterface) []schema.GroupVersion
 	var suggestions []schema.GroupVersionResource
 
 	apiResourceLists, err := discovery.ServerPreferredResources()
-	if err != nil {
-		// TODO: handle?
+	if err != nil && len(apiResourceLists) == 0 {
+		// Only bail out if we got no results at all.
+		// ServerPreferredResources can return partial results alongside
+		// a non-nil error (e.g. ErrGroupDiscoveryFailed) when some API
+		// groups are unavailable. We still want to use whatever it returned.
 		return suggestions
 	}
 
