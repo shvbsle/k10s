@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
+	"sigs.k8s.io/yaml"
 )
 
 type launchPluginMsg struct {
@@ -446,7 +447,8 @@ func (m *Model) commandWithPreflights(cmd tea.Cmd, preflights ...func() error) t
 	return cmd
 }
 
-// describeCurrentResource creates a command that fetches and describes the currently selected resource in YAML format.
+// describeCurrentResource creates a command that fetches the currently selected resource
+// using the dynamic client and formats it as a human-readable describe output.
 func (m *Model) describeCurrentResource() tea.Cmd {
 	return func() tea.Msg {
 		if len(m.resources) == 0 {
@@ -476,24 +478,22 @@ func (m *Model) describeCurrentResource() tea.Cmd {
 
 		log.G().Info("describing resource", "gvr", m.currentGVR, "name", selectedName, "namespace", selectedNamespace)
 
-		// Use kubectl describe to get human-readable output
-		var cmd *exec.Cmd
-		resourceType := m.currentGVR.Resource
-
-		if selectedNamespace != "" && selectedNamespace != metav1.NamespaceAll {
-			cmd = exec.Command("kubectl", "describe", resourceType, selectedName, "-n", selectedNamespace)
-		} else {
-			cmd = exec.Command("kubectl", "describe", resourceType, selectedName)
+		// Fetch the resource directly using the dynamic client
+		obj, err := m.k8sClient.Dynamic().Resource(m.currentGVR).Namespace(selectedNamespace).Get(context.TODO(), selectedName, metav1.GetOptions{})
+		if err != nil {
+			log.G().Error("failed to get resource for describe", "error", err)
+			return errMsg{fmt.Errorf("failed to describe resource: %w", err)}
 		}
 
-		output, err := cmd.CombinedOutput()
+		// Format as YAML for the describe view
+		yamlBytes, err := yaml.Marshal(obj.Object)
 		if err != nil {
-			log.G().Error("failed to describe resource", "error", err, "output", string(output))
-			return errMsg{fmt.Errorf("failed to describe resource: %w\n%s", err, string(output))}
+			log.G().Error("failed to marshal resource to yaml", "error", err)
+			return errMsg{fmt.Errorf("failed to format resource: %w", err)}
 		}
 
 		return resourceDescribedMsg{
-			yamlContent:  string(output),
+			yamlContent:  string(yamlBytes),
 			resourceName: selectedName,
 			namespace:    selectedNamespace,
 			gvr:          m.currentGVR,
@@ -531,24 +531,22 @@ func (m *Model) getResourceYaml() tea.Cmd {
 
 		log.G().Info("getting yaml for resource", "gvr", m.currentGVR, "name", selectedName, "namespace", selectedNamespace)
 
-		// Use kubectl get -o yaml to get YAML manifest
-		var cmd *exec.Cmd
-		resourceType := m.currentGVR.Resource
-
-		if selectedNamespace != "" && selectedNamespace != metav1.NamespaceAll {
-			cmd = exec.Command("kubectl", "get", resourceType, selectedName, "-n", selectedNamespace, "-o", "yaml")
-		} else {
-			cmd = exec.Command("kubectl", "get", resourceType, selectedName, "-o", "yaml")
+		// Fetch the resource directly using the dynamic client
+		obj, err := m.k8sClient.Dynamic().Resource(m.currentGVR).Namespace(selectedNamespace).Get(context.TODO(), selectedName, metav1.GetOptions{})
+		if err != nil {
+			log.G().Error("failed to get resource yaml", "error", err)
+			return errMsg{fmt.Errorf("failed to get resource yaml: %w", err)}
 		}
 
-		output, err := cmd.CombinedOutput()
+		// Marshal to YAML
+		yamlBytes, err := yaml.Marshal(obj.Object)
 		if err != nil {
-			log.G().Error("failed to get resource yaml", "error", err, "output", string(output))
-			return errMsg{fmt.Errorf("failed to get resource yaml: %w\n%s", err, string(output))}
+			log.G().Error("failed to marshal resource to yaml", "error", err)
+			return errMsg{fmt.Errorf("failed to format resource yaml: %w", err)}
 		}
 
 		return resourceYamlMsg{
-			yamlContent:  string(output),
+			yamlContent:  string(yamlBytes),
 			resourceName: selectedName,
 			namespace:    selectedNamespace,
 			gvr:          m.currentGVR,

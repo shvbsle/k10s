@@ -17,9 +17,10 @@ import (
 // for listing resources. It gracefully handles disconnected states and supports
 // reconnection.
 type Client struct {
-	clientset   kubernetes.Interface
-	config      *rest.Config
-	isConnected bool
+	clientset     kubernetes.Interface
+	dynamicClient dynamic.Interface
+	config        *rest.Config
+	isConnected   bool
 }
 
 // ClusterInfo contains metadata about the current Kubernetes cluster context,
@@ -70,7 +71,10 @@ func (c *Client) Dynamic() dynamic.Interface {
 	if c.clientset == nil {
 		return &disconnectedDynamic{}
 	}
-	return dynamic.NewForConfigOrDie(c.config)
+	if c.dynamicClient == nil {
+		c.dynamicClient = dynamic.NewForConfigOrDie(c.config)
+	}
+	return c.dynamicClient
 }
 
 func (c *Client) testConnection() bool {
@@ -110,6 +114,7 @@ func (c *Client) Reconnect() error {
 	}
 
 	c.clientset = clientset
+	c.dynamicClient = nil // invalidate cached dynamic client
 	c.isConnected = c.testConnection()
 
 	if !c.isConnected {
