@@ -778,16 +778,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseClickMsg, tea.MouseMotionMsg:
-		// Delegate all click/motion events to the MouseHandler for table views.
-		// Describe, yaml, and log views handle their own mouse events.
-		if m.currentGVR.Resource == k8s.ResourceDescribe ||
-			m.currentGVR.Resource == k8s.ResourceYaml ||
-			m.currentGVR.Resource == k8s.ResourceLogs {
-			return m, nil
-		}
 		if m.helpModal.IsVisible() {
 			return m, nil
 		}
+		// Route click events to the log viewport for line selection
+		if m.currentGVR.Resource == k8s.ResourceLogs {
+			if clickMsg, ok := msg.(tea.MouseClickMsg); ok {
+				m.logViewport, cmd = m.logViewport.Update(clickMsg)
+				return m, cmd
+			}
+			return m, nil
+		}
+		// Describe/yaml views don't handle click/motion yet
+		if m.currentGVR.Resource == k8s.ResourceDescribe ||
+			m.currentGVR.Resource == k8s.ResourceYaml {
+			return m, nil
+		}
+		// Table view: delegate to MouseHandler
 		evt := m.mouse.HandleEvent(msg.(tea.MouseMsg))
 		switch evt.Action {
 		case MouseActionSelectRow:
@@ -862,6 +869,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			switch key := msg.String(); {
 			case m.config.KeyBind.For(config.ActionEscape, key):
+				// If lines are selected, clear selection first
+				if m.logViewport.HasSelection() {
+					m.logViewport.ClearSelection()
+					return m, nil
+				}
 				// Stop log stream and go back
 				m.stopLogStream()
 				memento := m.navigationHistory.Pop()
@@ -871,6 +883,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.loadResources(k8s.ResourcePods)
 				}
 				return m, nil
+			case m.config.KeyBind.For(config.ActionCopySelection, key):
+				// Copy selected lines if any, otherwise copy all visible logs
+				if m.logViewport.HasSelection() {
+					return m, m.copySelectedLogLines()
+				}
+				return m, m.executeCplogsCommand(nil)
 			case m.config.KeyBind.For(config.ActionHelp, key):
 				m.helpModal.SetContent(m.BuildHelpContent())
 				m.helpModal.Toggle()
@@ -1362,6 +1380,9 @@ func (m *Model) View() tea.View {
 	case k8s.ResourceDescribe, k8s.ResourceYaml:
 		b.WriteString(m.describeViewport.View())
 	case k8s.ResourceLogs:
+		// Tell the log viewport where its content starts in terminal coordinates.
+		// Lines so far (main header) + 1 for the log viewport's own header line.
+		m.logViewport.SetViewStartY(strings.Count(b.String(), "\n") + 1)
 		b.WriteString(m.logViewport.View())
 	default:
 		m.renderTableWithHeader(&b)

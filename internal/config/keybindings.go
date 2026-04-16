@@ -33,6 +33,7 @@ const (
 	ActionToggleLineNumbers = "toggle-line-numbers"
 	ActionToggleTimestamps  = "toggle-timestamps"
 	ActionToggleWordWrap    = "toggle-word-wrap"
+	ActionCopySelection     = "copy-selection"
 )
 
 type KeyBind map[string][]string
@@ -65,6 +66,7 @@ func defaultKeybinds() KeyBind {
 		ActionToggleLineNumbers: []string{"n"},
 		ActionToggleTimestamps:  []string{"t"},
 		ActionToggleWordWrap:    []string{"w"},
+		ActionCopySelection:     []string{"y", "c"},
 	}
 }
 

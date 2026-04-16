@@ -155,6 +155,13 @@ func isStatusColumn(title string) bool {
 	return t == "phase" || t == "status"
 }
 
+// Pre-allocated styles for table row rendering to avoid per-frame allocations.
+var (
+	tableSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Background(lipgloss.Color("57"))
+	tableHoverStyle    = lipgloss.NewStyle().Underline(true)
+	tableNormalStyle   = lipgloss.NewStyle()
+)
+
 // updateTableData updates the table rows based on the current page and data.
 func (m *Model) updateTableData() {
 	if m.currentGVR.Resource == k8s.ResourceLogs && m.logLines != nil {
@@ -578,11 +585,8 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 	// The MouseHandler uses this to map click/hover Y positions to row indices.
 	m.mouse.BeginRender(b.String(), len(rows))
 
-	// Render data rows
+	// Render data rows using pre-allocated styles to avoid per-frame allocations.
 	selectedRow := m.table.Cursor()
-	selectedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Background(lipgloss.Color("57"))
-	hoverStyle := lipgloss.NewStyle().Underline(true)
-	normalStyle := lipgloss.NewStyle()
 
 	for idx, row := range rows {
 		isSelected := idx == selectedRow
@@ -618,7 +622,7 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 		displayLine := applyHorizontalScroll(fullRowLine, m.horizontalOffset, tableWidth)
 
 		// Apply selection or hover styling
-		rowStyle := m.mouse.RowStyle(idx, selectedRow, selectedStyle, hoverStyle, normalStyle)
+		rowStyle := m.mouse.RowStyle(idx, selectedRow, tableSelectedStyle, tableHoverStyle, tableNormalStyle)
 
 		b.WriteString(borderStyle.Render("│"))
 		b.WriteString(rowStyle.Render(displayLine))

@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -65,14 +67,7 @@ func (mh *MouseHandler) SetEnabled(enabled bool) {
 // Pass the current builder content so the handler can compute the Y offset
 // from the number of newlines already written.
 func (mh *MouseHandler) BeginRender(contentSoFar string, totalRows int) {
-	// Count newlines to determine the terminal line where data rows start.
-	count := 0
-	for _, c := range contentSoFar {
-		if c == '\n' {
-			count++
-		}
-	}
-	mh.dataStartY = count
+	mh.dataStartY = strings.Count(contentSoFar, "\n")
 	mh.totalRows = totalRows
 }
 

@@ -40,6 +40,32 @@ type LogViewport struct {
 	filterActive    bool
 	filterInput     textinput.Model
 	matchCount      int
+
+	// Line selection state for copy support
+	selectionAnchor int // First line clicked (-1 = no selection)
+	selectionEnd    int // Last line in selection range (-1 = no selection)
+
+	// renderedToLogIndex maps rendered line indices to logLines indices.
+	// Needed because filters can skip lines, so rendered line N may not
+	// correspond to logLines[N].
+	renderedToLogIndex []int
+
+	// viewStartY is the terminal Y coordinate where the log viewport content
+	// begins (after the log header line). Set by the parent during render so
+	// that click Y coordinates can be mapped to rendered line indices.
+	viewStartY int
+
+	// Reusable styles — allocated once, not per-render-frame.
+	styles logStyles
+}
+
+// logStyles holds pre-allocated lipgloss styles for log rendering.
+type logStyles struct {
+	lineNum   lipgloss.Style
+	timestamp lipgloss.Style
+	content   lipgloss.Style
+	match     lipgloss.Style
+	selected  lipgloss.Style
 }
 
 // NewLogViewport creates a new log viewport
@@ -61,6 +87,15 @@ func NewLogViewport() *LogViewport {
 		maxBufferSize:   DefaultMaxLogBuffer,
 		logLines:        make([]k8s.LogLine, 0),
 		filterInput:     fi,
+		selectionAnchor: -1,
+		selectionEnd:    -1,
+		styles: logStyles{
+			lineNum:   lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
+			timestamp: lipgloss.NewStyle().Foreground(lipgloss.Color("39")),
+			content:   lipgloss.NewStyle().Foreground(lipgloss.Color("252")),
+			match:     lipgloss.NewStyle().Foreground(lipgloss.Color("226")).Bold(true),
+			selected:  lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Background(lipgloss.Color("57")),
+		},
 	}
 }
 
@@ -75,6 +110,9 @@ func (l *LogViewport) SetContent(lines []k8s.LogLine, podName, containerName, na
 	l.filterActive = false
 	l.filterInput.SetValue("")
 	l.matchCount = 0
+	l.selectionAnchor = -1
+	l.selectionEnd = -1
+	l.renderedToLogIndex = nil
 	l.updateRenderedContent()
 
 	if l.autoScroll {
@@ -121,18 +159,20 @@ func (l *LogViewport) GetTailLines() int {
 
 // updateRenderedContent renders the log content with optional line numbers and timestamps.
 // When a filter is active, only matching lines are shown with matches highlighted.
+// Selected lines get a highlight background applied to plain text (no nested ANSI)
+// to avoid garbled escape sequences when the viewport truncates mid-sequence.
 func (l *LogViewport) updateRenderedContent() {
 	if len(l.logLines) == 0 {
+		l.renderedToLogIndex = nil
 		l.viewport.SetContent(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("No logs available"))
 		return
 	}
 
-	lineNumStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	timestampStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-	contentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	matchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226")).Bold(true)
+	// Compute selection range in logLines indices
+	selLo, selHi := l.selectionRange()
 
 	var rendered strings.Builder
+	l.renderedToLogIndex = l.renderedToLogIndex[:0] // reuse backing array
 	// Calculate the offset for line numbers when buffer has been trimmed
 	lineNumOffset := l.totalLines - len(l.logLines)
 	matchCount := 0
@@ -144,37 +184,84 @@ func (l *LogViewport) updateRenderedContent() {
 		}
 		matchCount++
 
-		if renderedCount > 0 {
-			rendered.WriteString("\n")
-		}
-		renderedCount++
+		isSelected := selLo >= 0 && i >= selLo && i <= selHi
 
+		// Build prefix (line number + timestamp) as plain text
+		var prefix string
 		if l.showLineNumbers {
 			actualLineNum := lineNumOffset + i + 1
-			rendered.WriteString(lineNumStyle.Render(fmt.Sprintf("%6d ", actualLineNum)))
+			prefix += fmt.Sprintf("%6d ", actualLineNum)
 		}
-
 		if l.showTimestamps && line.Timestamp != "" {
-			rendered.WriteString(timestampStyle.Render(line.Timestamp + " "))
+			prefix += line.Timestamp + " "
 		}
 
 		content := line.Content
+
+		// Word wrap: one log line may produce multiple rendered lines.
+		// Each rendered line maps back to the same logLines index so that
+		// click-to-select works correctly in word wrap mode.
+		var lineTexts []string
 		if l.wordWrap && l.width > 0 {
-			content = l.wrapText(content, l.width-10)
+			wrapped := l.wrapText(content, l.width-10)
+			lineTexts = strings.Split(wrapped, "\n")
+		} else {
+			lineTexts = []string{content}
 		}
 
-		if l.filterText != "" {
-			rendered.WriteString(highlightMatches(content, l.filterText, contentStyle, matchStyle))
-		} else {
-			rendered.WriteString(contentStyle.Render(content))
+		for j, text := range lineTexts {
+			if renderedCount > 0 {
+				rendered.WriteString("\n")
+			}
+			l.renderedToLogIndex = append(l.renderedToLogIndex, i)
+			renderedCount++
+
+			if isSelected {
+				// Selected: render as plain text with a single highlight style.
+				// No nested ANSI codes — avoids garbled escape sequences.
+				var plainLine string
+				if j == 0 {
+					plainLine = prefix + text
+				} else {
+					plainLine = strings.Repeat(" ", len(prefix)) + text
+				}
+				rendered.WriteString(l.styles.selected.Render(plainLine))
+			} else {
+				// Normal rendering with per-segment styles
+				l.renderStyledLine(&rendered, i, j, text, prefix, lineNumOffset)
+			}
 		}
 	}
 
 	l.matchCount = matchCount
 	if rendered.Len() == 0 {
+		l.renderedToLogIndex = nil
 		l.viewport.SetContent(lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("No matching lines"))
 	} else {
 		l.viewport.SetContent(rendered.String())
+	}
+}
+
+// renderStyledLine writes a single styled (non-selected) line to the builder.
+func (l *LogViewport) renderStyledLine(b *strings.Builder, logIdx, wrapIdx int, text, prefix string,
+	lineNumOffset int) {
+
+	if wrapIdx == 0 {
+		if l.showLineNumbers {
+			actualLineNum := lineNumOffset + logIdx + 1
+			b.WriteString(l.styles.lineNum.Render(fmt.Sprintf("%6d ", actualLineNum)))
+		}
+		if l.showTimestamps && l.logLines[logIdx].Timestamp != "" {
+			b.WriteString(l.styles.timestamp.Render(l.logLines[logIdx].Timestamp + " "))
+		}
+	} else {
+		b.WriteString(l.styles.content.Render(strings.Repeat(" ", len(prefix))))
+	}
+
+	if l.filterText != "" {
+		b.WriteString(highlightMatches(text, l.filterText, l.styles.content, l.styles.match))
+	} else {
+		b.WriteString(l.styles.content.Render(text))
 	}
 }
 
@@ -229,6 +316,27 @@ func (l *LogViewport) Update(msg tea.Msg) (*LogViewport, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tea.MouseWheelMsg:
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			// Scrolling up pauses autoscroll so the user can read history
+			// without new lines yanking them back to the bottom.
+			l.autoScroll = false
+		case tea.MouseWheelDown:
+			// If we've scrolled to the bottom, re-enable tailing
+			if l.viewport.AtBottom() {
+				l.autoScroll = true
+			}
+		}
+		// Delegate to the viewport for actual scroll movement
+		var cmd tea.Cmd
+		l.viewport, cmd = l.viewport.Update(msg)
+		return l, cmd
+
+	case tea.MouseClickMsg:
+		l.handleClick(msg.Y, msg.Mod)
+		return l, nil
+
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
@@ -296,6 +404,12 @@ func (l *LogViewport) View() string {
 	if l.filterActive {
 		footer = keyStyle.Render("/") + hintStyle.Render(" ") + l.filterInput.View() +
 			hintStyle.Render("   ") + keyStyle.Render("esc") + hintStyle.Render(" clear")
+	} else if l.HasSelection() {
+		selStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+		footer = selStyle.Render(fmt.Sprintf("%d lines selected", l.SelectedLineCount())) +
+			hintStyle.Render("  ") + keyStyle.Render("y/c") + hintStyle.Render(" yank (copy)  ") +
+			keyStyle.Render("shift+click") + hintStyle.Render(" extend  ") +
+			keyStyle.Render("esc") + hintStyle.Render(" clear")
 	} else {
 		footer = keyStyle.Render("↑↓/jk") + hintStyle.Render(" scroll  ") +
 			keyStyle.Render("g/G") + hintStyle.Render(" top/bottom  ") +
@@ -304,6 +418,7 @@ func (l *LogViewport) View() string {
 			keyStyle.Render("s") + hintStyle.Render(" tail  ") +
 			keyStyle.Render("/") + hintStyle.Render(" filter  ") +
 			keyStyle.Render("w") + hintStyle.Render(" wrap  ") +
+			keyStyle.Render("click") + hintStyle.Render(" select  ") +
 			keyStyle.Render("esc") + hintStyle.Render(" back")
 	}
 
@@ -395,4 +510,88 @@ func (l *LogViewport) GotoBottom() {
 // Height returns the total height used by the viewport
 func (l *LogViewport) Height() int {
 	return l.height
+}
+
+// SetViewStartY sets the terminal Y coordinate where the viewport content
+// begins. Called by the parent View function so click coordinates can be
+// translated to rendered line indices without magic numbers.
+func (l *LogViewport) SetViewStartY(y int) {
+	l.viewStartY = y
+}
+
+// handleClick processes a mouse click in the log viewport.
+// Plain click selects a single line; shift+click extends the selection
+// from the anchor to the clicked line.
+func (l *LogViewport) handleClick(y int, mod tea.KeyMod) {
+	// Map terminal Y to a rendered line index.
+	// viewStartY points to the first line of viewport content (after the
+	// log header line). The viewport's YOffset is the scroll position.
+	renderedLine := l.viewport.YOffset() + (y - l.viewStartY)
+	if renderedLine < 0 || renderedLine >= len(l.renderedToLogIndex) {
+		return
+	}
+
+	logIdx := l.renderedToLogIndex[renderedLine]
+
+	if mod&tea.ModShift != 0 && l.selectionAnchor >= 0 {
+		// Shift+click: extend selection from anchor to this line
+		l.selectionEnd = logIdx
+	} else {
+		// Plain click: start new selection (single line)
+		l.selectionAnchor = logIdx
+		l.selectionEnd = logIdx
+	}
+
+	l.updateRenderedContent()
+}
+
+// ClearSelection removes any active line selection.
+func (l *LogViewport) ClearSelection() {
+	if l.selectionAnchor < 0 {
+		return
+	}
+	l.selectionAnchor = -1
+	l.selectionEnd = -1
+	l.updateRenderedContent()
+}
+
+// HasSelection returns true if one or more lines are selected.
+func (l *LogViewport) HasSelection() bool {
+	return l.selectionAnchor >= 0
+}
+
+// SelectedLines returns the log lines in the current selection range.
+// Returns nil if nothing is selected.
+func (l *LogViewport) SelectedLines() []k8s.LogLine {
+	lo, hi := l.selectionRange()
+	if lo < 0 {
+		return nil
+	}
+	// Clamp to valid range
+	if hi >= len(l.logLines) {
+		hi = len(l.logLines) - 1
+	}
+	return l.logLines[lo : hi+1]
+}
+
+// selectionRange returns the normalized (low, high) indices into logLines.
+// Returns (-1, -1) if no selection is active.
+func (l *LogViewport) selectionRange() (int, int) {
+	if l.selectionAnchor < 0 || l.selectionEnd < 0 {
+		return -1, -1
+	}
+	lo, hi := l.selectionAnchor, l.selectionEnd
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	return lo, hi
+}
+
+// SelectedLineCount returns the number of lines currently selected.
+func (l *LogViewport) SelectedLineCount() int {
+	lo, hi := l.selectionRange()
+	if lo < 0 {
+		return 0
+	}
+	return hi - lo + 1
 }
