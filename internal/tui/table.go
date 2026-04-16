@@ -574,13 +574,21 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 	b.WriteString(separatorStyle.Render(separator))
 	b.WriteString("\n")
 
+	// Record the Y coordinate where data rows begin.
+	// Count newlines in the builder so far — this is the terminal line where
+	// the first data row will be rendered. Used by mouse handlers to map
+	// click/hover Y positions to row indices without any magic numbers.
+	m.tableDataStartY = strings.Count(b.String(), "\n")
+
 	// Render data rows
 	selectedRow := m.table.Cursor()
 	selectedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Background(lipgloss.Color("57"))
+	hoverStyle := lipgloss.NewStyle().Underline(true)
 	normalStyle := lipgloss.NewStyle()
 
 	for idx, row := range rows {
 		isSelected := idx == selectedRow
+		isHovered := idx == m.hoverRow && !isSelected
 
 		// Build the full row with each cell padded to its effective width
 		// Cells that overflow their defined column width are kept at full length
@@ -591,8 +599,11 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 			}
 			cellText := cell
 
-			// Colorize status/phase columns (skip for selected row so highlight extends fully)
-			if !isSelected && i < len(columns) && isStatusColumn(columns[i].Title) {
+			// Colorize status/phase columns.
+			// Skip for selected rows (background highlight replaces color) and
+			// hovered rows (underline + nested ANSI from status colors can
+			// produce garbled escape sequences after horizontal scroll truncation).
+			if !isSelected && !isHovered && i < len(columns) && isStatusColumn(columns[i].Title) {
 				style := statusColor(cell)
 				cellText = style.Render(cell)
 			}
@@ -608,10 +619,15 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 		// Apply horizontal offset and truncate to table width
 		displayLine := applyHorizontalScroll(fullRowLine, m.horizontalOffset, tableWidth)
 
-		// Apply selection styling
-		rowStyle := normalStyle
-		if idx == selectedRow {
+		// Apply selection or hover styling
+		var rowStyle lipgloss.Style
+		switch {
+		case isSelected:
 			rowStyle = selectedStyle
+		case isHovered:
+			rowStyle = hoverStyle
+		default:
+			rowStyle = normalStyle
 		}
 
 		b.WriteString(borderStyle.Render("│"))

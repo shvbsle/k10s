@@ -83,6 +83,8 @@ type Model struct {
 	logStreamCancel   func()             // Function to cancel active log stream
 	logLinesChan      <-chan k8s.LogLine // Channel for receiving streamed log lines
 	horizontalOffset  int                // Horizontal scroll offset for table view (in characters)
+	hoverRow          int                // Row index currently under mouse hover (-1 = none)
+	tableDataStartY   int                // Terminal Y coordinate where table data rows begin (computed during render)
 }
 
 func (m *Model) tryQueueTableUpdate() bool {
@@ -313,6 +315,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 		helpModal:         NewHelpModal(),
 		describeViewport:  NewDescribeViewport(),
 		logViewport:       NewLogViewport(),
+		hoverRow:          -1,
 	}
 }
 
@@ -375,9 +378,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg {
 			// block on someone sending the update message.
 			<-m.updateTableChan
+			// Preserve cursor position across column/row updates so that
+			// background refreshes don't reset the user's selection.
+			savedCursor := max(m.table.Cursor(), 0)
 			// run the necessary table view update calls.
 			m.updateColumns(m.viewWidth)
 			m.updateTableData()
+			// Restore cursor, clamped to valid range.
+			rowCount := len(m.table.Rows())
+			if rowCount > 0 {
+				if savedCursor >= rowCount {
+					savedCursor = rowCount - 1
+				}
+				m.table.SetCursor(savedCursor)
+			}
 			// recursively send the update message to keep the request queued.
 			return updateTableMsg{}
 		}
@@ -726,6 +740,70 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					metav1.ListOptions{},
 				),
 			)
+		}
+		return m, nil
+
+	case tea.MouseWheelMsg:
+		switch {
+		case m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceYaml:
+			m.describeViewport, cmd = m.describeViewport.Update(msg)
+			return m, cmd
+		case m.currentGVR.Resource == k8s.ResourceLogs:
+			m.logViewport, cmd = m.logViewport.Update(msg)
+			return m, cmd
+		default:
+			// Table view: scroll rows with mouse wheel (1 row at a time for smooth scrolling)
+			switch msg.Button {
+			case tea.MouseWheelUp:
+				if m.table.Cursor() <= 0 {
+					if m.paginator.Page > 0 {
+						m.paginator.PrevPage()
+						m.updateTableData()
+						m.table.GotoBottom()
+					}
+				} else {
+					m.table.MoveUp(1)
+				}
+			case tea.MouseWheelDown:
+				if m.table.Cursor() >= len(m.table.Rows())-1 {
+					if m.paginator.Page < m.paginator.TotalPages-1 {
+						m.paginator.NextPage()
+						m.updateTableData()
+						m.table.GotoTop()
+					}
+				} else {
+					m.table.MoveDown(1)
+				}
+			}
+			return m, nil
+		}
+
+	case tea.MouseClickMsg:
+		// Handle click-to-select on table rows
+		if m.currentGVR.Resource != k8s.ResourceDescribe &&
+			m.currentGVR.Resource != k8s.ResourceYaml &&
+			m.currentGVR.Resource != k8s.ResourceLogs {
+			if m.helpModal.IsVisible() {
+				return m, nil
+			}
+			clickedRow := msg.Y - m.tableDataStartY
+			if clickedRow >= 0 && clickedRow < len(m.table.Rows()) {
+				m.table.SetCursor(clickedRow)
+			}
+		}
+		return m, nil
+
+	case tea.MouseMotionMsg:
+		// Track hover row for visual feedback in table view
+		if m.currentGVR.Resource != k8s.ResourceDescribe &&
+			m.currentGVR.Resource != k8s.ResourceYaml &&
+			m.currentGVR.Resource != k8s.ResourceLogs {
+			hoveredRow := msg.Y - m.tableDataStartY
+			if hoveredRow >= 0 && hoveredRow < len(m.table.Rows()) {
+				m.hoverRow = hoveredRow
+			} else {
+				m.hoverRow = -1
+			}
 		}
 		return m, nil
 
@@ -1257,7 +1335,7 @@ func (m *Model) View() tea.View {
 	if !m.ready {
 		v := tea.NewView("Initializing k10s...")
 		v.AltScreen = true
-		v.MouseMode = tea.MouseModeCellMotion
+		v.MouseMode = tea.MouseModeAllMotion
 		return v
 	}
 
@@ -1377,7 +1455,7 @@ func (m *Model) View() tea.View {
 
 	v := tea.NewView(output)
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	v.MouseMode = tea.MouseModeAllMotion
 	return v
 }
 
