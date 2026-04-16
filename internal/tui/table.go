@@ -155,6 +155,13 @@ func isStatusColumn(title string) bool {
 	return t == "phase" || t == "status"
 }
 
+// Pre-allocated styles for table row rendering to avoid per-frame allocations.
+var (
+	tableSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Background(lipgloss.Color("57"))
+	tableHoverStyle    = lipgloss.NewStyle().Underline(true)
+	tableNormalStyle   = lipgloss.NewStyle()
+)
+
 // updateTableData updates the table rows based on the current page and data.
 func (m *Model) updateTableData() {
 	if m.currentGVR.Resource == k8s.ResourceLogs && m.logLines != nil {
@@ -574,13 +581,16 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 	b.WriteString(separatorStyle.Render(separator))
 	b.WriteString("\n")
 
-	// Render data rows
+	// Record the Y coordinate where data rows begin.
+	// The MouseHandler uses this to map click/hover Y positions to row indices.
+	m.mouse.BeginRender(b.String(), len(rows))
+
+	// Render data rows using pre-allocated styles to avoid per-frame allocations.
 	selectedRow := m.table.Cursor()
-	selectedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Background(lipgloss.Color("57"))
-	normalStyle := lipgloss.NewStyle()
 
 	for idx, row := range rows {
 		isSelected := idx == selectedRow
+		isHovered := m.mouse.IsHovered(idx) && !isSelected
 
 		// Build the full row with each cell padded to its effective width
 		// Cells that overflow their defined column width are kept at full length
@@ -591,8 +601,11 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 			}
 			cellText := cell
 
-			// Colorize status/phase columns (skip for selected row so highlight extends fully)
-			if !isSelected && i < len(columns) && isStatusColumn(columns[i].Title) {
+			// Colorize status/phase columns.
+			// Skip for selected rows (background highlight replaces color) and
+			// hovered rows (underline + nested ANSI from status colors can
+			// produce garbled escape sequences after horizontal scroll truncation).
+			if !isSelected && !isHovered && i < len(columns) && isStatusColumn(columns[i].Title) {
 				style := statusColor(cell)
 				cellText = style.Render(cell)
 			}
@@ -608,11 +621,8 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 		// Apply horizontal offset and truncate to table width
 		displayLine := applyHorizontalScroll(fullRowLine, m.horizontalOffset, tableWidth)
 
-		// Apply selection styling
-		rowStyle := normalStyle
-		if idx == selectedRow {
-			rowStyle = selectedStyle
-		}
+		// Apply selection or hover styling
+		rowStyle := m.mouse.RowStyle(idx, selectedRow, tableSelectedStyle, tableHoverStyle, tableNormalStyle)
 
 		b.WriteString(borderStyle.Render("│"))
 		b.WriteString(rowStyle.Render(displayLine))

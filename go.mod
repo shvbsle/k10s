@@ -8,7 +8,6 @@ require (
 	charm.land/lipgloss/v2 v2.0.2
 	github.com/JoelOtter/termloop v0.0.0-20210806173944-5f7c38744afb
 	github.com/adrg/xdg v0.5.3
-	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/gammazero/deque v1.2.1
 	github.com/google/gnostic-models v0.7.1
@@ -23,6 +22,7 @@ require (
 )
 
 require (
+	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/charmbracelet/colorprofile v0.4.2 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260205113103-524a6607adb8 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect

@@ -232,7 +232,13 @@ func (m *Model) watchResources(gvr schema.GroupVersionResource, namespace string
 				}
 
 				_, index, _ := lo.FindIndexOf(m.resources, func(r k8s.OrderedResourceFields) bool {
-					return lo.IndexOf(r, obj.GetName()) != -1 && lo.IndexOf(r, obj.GetNamespace()) != -1
+					nameMatch := lo.IndexOf(r, obj.GetName()) != -1
+					// Cluster-scoped resources (e.g. nodes) have no namespace,
+					// so matching on name alone is sufficient.
+					if obj.GetNamespace() == "" {
+						return nameMatch
+					}
+					return nameMatch && lo.IndexOf(r, obj.GetNamespace()) != -1
 				})
 
 				fields := lo.Map(resources.GetResourceView(gvr.Resource).Fields, func(field resources.ResourceViewField, _ int) string {
@@ -246,18 +252,20 @@ func (m *Model) watchResources(gvr schema.GroupVersionResource, namespace string
 
 						// TODO: this is expensive, but we can find cheaper
 						// or better alternative later.
-						var (
-							nameIndex, _      = k8s.NameColumn(m.table.Columns())
-							namespaceIndex, _ = k8s.NamespaceColumn(m.table.Columns())
-						)
+						nameIndex, nameOk := k8s.NameColumn(m.table.Columns())
+						namespaceIndex, nsOk := k8s.NamespaceColumn(m.table.Columns())
 
 						// TODO: this is how kubernetes resources are
 						// assumed to be sorted. i.e. by name and namespace.
 						sortIndex := func(index int) func(int, int) bool {
 							return func(i, j int) bool { return strings.Compare(m.resources[i][index], m.resources[j][index]) < 0 }
 						}
-						sort.Slice(m.resources, sortIndex(nameIndex))
-						sort.Slice(m.resources, sortIndex(namespaceIndex))
+						if nameOk && nameIndex >= 0 {
+							sort.Slice(m.resources, sortIndex(nameIndex))
+						}
+						if nsOk && namespaceIndex >= 0 {
+							sort.Slice(m.resources, sortIndex(namespaceIndex))
+						}
 					}
 				case watch.Modified:
 					if index == -1 {

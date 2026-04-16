@@ -83,6 +83,7 @@ type Model struct {
 	logStreamCancel   func()             // Function to cancel active log stream
 	logLinesChan      <-chan k8s.LogLine // Channel for receiving streamed log lines
 	horizontalOffset  int                // Horizontal scroll offset for table view (in characters)
+	mouse             *MouseHandler      // Encapsulated mouse interaction state and logic
 }
 
 func (m *Model) tryQueueTableUpdate() bool {
@@ -313,6 +314,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 		helpModal:         NewHelpModal(),
 		describeViewport:  NewDescribeViewport(),
 		logViewport:       NewLogViewport(),
+		mouse:             NewMouseHandler(),
 	}
 }
 
@@ -375,9 +377,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg {
 			// block on someone sending the update message.
 			<-m.updateTableChan
+			// Preserve cursor position across column/row updates so that
+			// background refreshes don't reset the user's selection.
+			savedCursor := max(m.table.Cursor(), 0)
 			// run the necessary table view update calls.
 			m.updateColumns(m.viewWidth)
 			m.updateTableData()
+			// Restore cursor, clamped to valid range.
+			rowCount := len(m.table.Rows())
+			if rowCount > 0 {
+				if savedCursor >= rowCount {
+					savedCursor = rowCount - 1
+				}
+				m.table.SetCursor(savedCursor)
+			}
 			// recursively send the update message to keep the request queued.
 			return updateTableMsg{}
 		}
@@ -729,6 +742,69 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.MouseWheelMsg:
+		switch m.currentGVR.Resource {
+		case k8s.ResourceDescribe, k8s.ResourceYaml:
+			m.describeViewport, cmd = m.describeViewport.Update(msg)
+			return m, cmd
+		case k8s.ResourceLogs:
+			m.logViewport, cmd = m.logViewport.Update(msg)
+			return m, cmd
+		default:
+			evt := m.mouse.HandleEvent(msg)
+			switch evt.Action {
+			case MouseActionScrollUp:
+				if m.table.Cursor() <= 0 {
+					if m.paginator.Page > 0 {
+						m.paginator.PrevPage()
+						m.updateTableData()
+						m.table.GotoBottom()
+					}
+				} else {
+					m.table.MoveUp(1)
+				}
+			case MouseActionScrollDown:
+				if m.table.Cursor() >= len(m.table.Rows())-1 {
+					if m.paginator.Page < m.paginator.TotalPages-1 {
+						m.paginator.NextPage()
+						m.updateTableData()
+						m.table.GotoTop()
+					}
+				} else {
+					m.table.MoveDown(1)
+				}
+			}
+			return m, nil
+		}
+
+	case tea.MouseClickMsg, tea.MouseMotionMsg:
+		if m.helpModal.IsVisible() {
+			return m, nil
+		}
+		// Route click events to the log viewport for line selection
+		if m.currentGVR.Resource == k8s.ResourceLogs {
+			if clickMsg, ok := msg.(tea.MouseClickMsg); ok {
+				m.logViewport, cmd = m.logViewport.Update(clickMsg)
+				return m, cmd
+			}
+			return m, nil
+		}
+		// Describe/yaml views don't handle click/motion yet
+		if m.currentGVR.Resource == k8s.ResourceDescribe ||
+			m.currentGVR.Resource == k8s.ResourceYaml {
+			return m, nil
+		}
+		// Table view: delegate to MouseHandler
+		evt := m.mouse.HandleEvent(msg.(tea.MouseMsg))
+		switch evt.Action {
+		case MouseActionSelectRow:
+			m.table.SetCursor(evt.Row)
+		case MouseActionHoverRow, MouseActionHoverClear:
+			// Hover state is tracked internally by MouseHandler;
+			// the render loop reads it via mouse.HoverRow().
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// top-level exit early.
 		if msg.String() == "ctrl+c" {
@@ -793,6 +869,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			switch key := msg.String(); {
 			case m.config.KeyBind.For(config.ActionEscape, key):
+				// If lines are selected, clear selection first
+				if m.logViewport.HasSelection() {
+					m.logViewport.ClearSelection()
+					return m, nil
+				}
 				// Stop log stream and go back
 				m.stopLogStream()
 				memento := m.navigationHistory.Pop()
@@ -802,6 +883,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.loadResources(k8s.ResourcePods)
 				}
 				return m, nil
+			case m.config.KeyBind.For(config.ActionCopySelection, key):
+				// Copy selected lines if any, otherwise copy all visible logs
+				if m.logViewport.HasSelection() {
+					return m, m.copySelectedLogLines()
+				}
+				return m, m.executeCplogsCommand(nil)
 			case m.config.KeyBind.For(config.ActionHelp, key):
 				m.helpModal.SetContent(m.BuildHelpContent())
 				m.helpModal.Toggle()
@@ -1257,7 +1344,7 @@ func (m *Model) View() tea.View {
 	if !m.ready {
 		v := tea.NewView("Initializing k10s...")
 		v.AltScreen = true
-		v.MouseMode = tea.MouseModeCellMotion
+		v.MouseMode = m.mouse.MouseMode()
 		return v
 	}
 
@@ -1293,6 +1380,9 @@ func (m *Model) View() tea.View {
 	case k8s.ResourceDescribe, k8s.ResourceYaml:
 		b.WriteString(m.describeViewport.View())
 	case k8s.ResourceLogs:
+		// Tell the log viewport where its content starts in terminal coordinates.
+		// Lines so far (main header) + 1 for the log viewport's own header line.
+		m.logViewport.SetViewStartY(strings.Count(b.String(), "\n") + 1)
 		b.WriteString(m.logViewport.View())
 	default:
 		m.renderTableWithHeader(&b)
@@ -1377,7 +1467,7 @@ func (m *Model) View() tea.View {
 
 	v := tea.NewView(output)
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	v.MouseMode = m.mouse.MouseMode()
 	return v
 }
 
