@@ -743,11 +743,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseWheelMsg:
-		switch {
-		case m.currentGVR.Resource == k8s.ResourceDescribe || m.currentGVR.Resource == k8s.ResourceYaml:
+		switch m.currentGVR.Resource {
+		case k8s.ResourceDescribe, k8s.ResourceYaml:
 			m.describeViewport, cmd = m.describeViewport.Update(msg)
 			return m, cmd
-		case m.currentGVR.Resource == k8s.ResourceLogs:
+		case k8s.ResourceLogs:
 			m.logViewport, cmd = m.logViewport.Update(msg)
 			return m, cmd
 		default:
