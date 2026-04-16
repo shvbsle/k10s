@@ -575,10 +575,8 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 	b.WriteString("\n")
 
 	// Record the Y coordinate where data rows begin.
-	// Count newlines in the builder so far — this is the terminal line where
-	// the first data row will be rendered. Used by mouse handlers to map
-	// click/hover Y positions to row indices without any magic numbers.
-	m.tableDataStartY = strings.Count(b.String(), "\n")
+	// The MouseHandler uses this to map click/hover Y positions to row indices.
+	m.mouse.BeginRender(b.String(), len(rows))
 
 	// Render data rows
 	selectedRow := m.table.Cursor()
@@ -588,7 +586,7 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 
 	for idx, row := range rows {
 		isSelected := idx == selectedRow
-		isHovered := idx == m.hoverRow && !isSelected
+		isHovered := m.mouse.IsHovered(idx) && !isSelected
 
 		// Build the full row with each cell padded to its effective width
 		// Cells that overflow their defined column width are kept at full length
@@ -620,15 +618,7 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 		displayLine := applyHorizontalScroll(fullRowLine, m.horizontalOffset, tableWidth)
 
 		// Apply selection or hover styling
-		var rowStyle lipgloss.Style
-		switch {
-		case isSelected:
-			rowStyle = selectedStyle
-		case isHovered:
-			rowStyle = hoverStyle
-		default:
-			rowStyle = normalStyle
-		}
+		rowStyle := m.mouse.RowStyle(idx, selectedRow, selectedStyle, hoverStyle, normalStyle)
 
 		b.WriteString(borderStyle.Render("│"))
 		b.WriteString(rowStyle.Render(displayLine))
