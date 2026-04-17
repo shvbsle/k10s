@@ -24,6 +24,10 @@ const (
 	DefaultPaginationStyle = PaginationStyleBubbles
 	// DefaultLogFilePath is the default path for k10s logs.
 	DefaultLogFilePath = "k10s.log"
+	// DefaultAgeRefreshInterval is how often the TUI recomputes age strings
+	// client-side. This involves no API calls — just re-formatting cached
+	// timestamps — so it is safe even at hyperscale (1M+ resources).
+	DefaultAgeRefreshInterval = 1 // seconds
 )
 
 // PaginationStyle represents the style of pagination display

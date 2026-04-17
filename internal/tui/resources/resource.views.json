@@ -2,46 +2,53 @@
   "pods": {
     "fields": [
       {
-        "name": "Namespace",
-        "resolver": {
-          "path": "{{ .metadata.namespace }}"
-        },
-        "weight": 0.12
-      },
-      {
         "name": "Name",
         "resolver": {
           "path": "{{ .metadata.name }}"
         },
-        "weight": 0.3
+        "weight": 0.28
       },
       {
-        "name": "Node",
+        "name": "Status",
         "resolver": {
-          "path": "{{ .spec.nodeName }}"
-        },
-        "weight": 0.18
-      },
-      {
-        "name": "Phase",
-        "resolver": {
-          "path": "{{ .status.phase }}"
+          "func": "podStatus"
         },
         "weight": 0.12
+      },
+      {
+        "name": "Restarts",
+        "resolver": {
+          "func": "restarts"
+        },
+        "weight": 0.07
       },
       {
         "name": "Age",
         "resolver": {
           "func": "age"
         },
-        "weight": 0.08
+        "weight": 0.07
+      },
+      {
+        "name": "Namespace",
+        "resolver": {
+          "path": "{{ .metadata.namespace }}"
+        },
+        "weight": 0.14
       },
       {
         "name": "Pod IP",
         "resolver": {
           "path": "{{ .status.podIP }}"
         },
-        "weight": 0.2
+        "weight": 0.16
+      },
+      {
+        "name": "Node",
+        "resolver": {
+          "path": "{{ .spec.nodeName }}"
+        },
+        "weight": 0.16
       }
     ]
   },
