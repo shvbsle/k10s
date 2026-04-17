@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-17
+
+### Added
+- Pod **Status** column that mirrors kubectl logic — surfaces OOMKilled, CrashLoopBackOff, Init errors, Terminating, and non-zero exit codes from container statuses
+- Pod **Restarts** column showing total restart count across all containers
+- Real-time age refresh (1-second tick) that recomputes age strings client-side from cached timestamps — no API calls, safe at 1M+ pods
+- Day-level age formatting (`7d`) for resources older than 24 hours
+- `DefaultAgeRefreshInterval` config constant for the refresh tick interval
+
+### Changed
+- Pod column order: Name → Status → Restarts → Age → Namespace → Pod IP → Node
+- Renamed pod "Phase" column to "Status" with proper container-aware status resolution
+- Extracted pod status logic into dedicated `internal/k8s/pod_status.go` with clean helper functions
+- Watch goroutine maintains `creationTimes` cache in sync with resources for zero-allocation age updates
+- Coordinated sorting via `sort.Interface` (`resourceSorter`) instead of temporary index slice allocations
+- Resolver template parsing errors are now handled explicitly instead of panicking
+
+### Fixed
+- Pod phase showing "Running" when containers are OOMKilled or in CrashLoopBackOff
+- Missing restart count visibility despite pods restarting
+- Age column showing stale values (e.g. "4s" forever) because it was only computed once at resolve time
+- Age showing `<unknown>` instead of panicking on zero-value timestamps
+
+## [0.3.1] - 2026-03-27
+
+### Fixed
+- Fix version number not being set correctly in release builds
+
+### Changed
+- Bump Go dependency group (6 updates)
+
+## [0.3.0] - 2026-03-27
+
+### Added
+- Log filtering/search in streaming log view with match highlighting
+- `FilterLogs` key binding for interactive log filtering
+- Color-coded describe output — status values, timestamps, and keys are syntax-highlighted
+- Color-coded pod phase in table view based on pod state
+- Unit tests for log filtering functionality
+
+### Fixed
+- Reset filter state when switching between pods in log view
+- Linter errors across the codebase
+
+### Changed
+- CI workflow split into separate linting and testing jobs
+- Enhanced test command with timeout and count options
+
 ## [0.2.0] - 2026-02-24
 
 ### Added
@@ -69,7 +117,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Customizable ASCII logo
 - Built with Bubble Tea TUI framework
 
-[Unreleased]: https://github.com/shvbsle/k10s/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/shvbsle/k10s/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/shvbsle/k10s/compare/v0.3.1...v0.4.0
+[0.3.1]: https://github.com/shvbsle/k10s/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/shvbsle/k10s/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/shvbsle/k10s/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/shvbsle/k10s/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/shvbsle/k10s/releases/tag/v0.1.0
