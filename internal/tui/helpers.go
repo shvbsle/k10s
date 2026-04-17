@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/shvbsle/k10s/internal/k8s"
 )
@@ -101,4 +103,34 @@ func isContainerRunning(status string) bool {
 // escaping any embedded single quotes.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+// resourceSorter implements sort.Interface, sorting m.resources and
+// m.creationTimes in lockstep by the value at the given column index.
+// This avoids allocating temporary index slices on every sort.
+type resourceSorter struct {
+	resources     []k8s.OrderedResourceFields
+	creationTimes []time.Time
+	col           int
+}
+
+func (s resourceSorter) Len() int { return len(s.resources) }
+func (s resourceSorter) Less(i, j int) bool {
+	return s.resources[i][s.col] < s.resources[j][s.col]
+}
+func (s resourceSorter) Swap(i, j int) {
+	s.resources[i], s.resources[j] = s.resources[j], s.resources[i]
+	if i < len(s.creationTimes) && j < len(s.creationTimes) {
+		s.creationTimes[i], s.creationTimes[j] = s.creationTimes[j], s.creationTimes[i]
+	}
+}
+
+// sortResourcesByColumn sorts m.resources and m.creationTimes in place by the
+// string value at the given column index. Both slices stay in sync.
+func (m *Model) sortResourcesByColumn(col int) {
+	sort.Stable(resourceSorter{
+		resources:     m.resources,
+		creationTimes: m.creationTimes,
+		col:           col,
+	})
 }

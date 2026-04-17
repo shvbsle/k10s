@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"text/template"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -182,7 +183,6 @@ func (m *Model) loadResources(resource string) tea.Cmd {
 	return m.loadResourcesWithNamespace(metav1.Unversioned.WithResource(resource), m.currentNamespace, metav1.ListOptions{})
 }
 
-// loadResources creates a command that loads the specified resource type using current namespace.
 // loadResourcesWithNamespace creates a command that loads the specified resource type from a specific namespace.
 func (m *Model) loadResourcesWithNamespace(gvr schema.GroupVersionResource, namespace string, listOptions metav1.ListOptions) tea.Cmd {
 	return func() tea.Msg {
@@ -192,16 +192,24 @@ func (m *Model) loadResourcesWithNamespace(gvr schema.GroupVersionResource, name
 			return errMsg{err}
 		}
 
+		items := resourceList.Items
+		resolvedResources := make([]k8s.OrderedResourceFields, len(items))
+		creationTimes := make([]time.Time, len(items))
+
+		for i, object := range items {
+			creationTimes[i] = object.GetCreationTimestamp().Time
+			obj := object // capture for closure
+			resolvedResources[i] = lo.Map(resources.GetResourceView(gvr.Resource).Fields, func(field resources.ResourceViewField, _ int) string {
+				return lo.Must(field.Resolver.Resolve(&obj))
+			})
+		}
+
 		return resourcesLoadedMsg{
-			gvr:         gvr,
-			namespace:   namespace,
-			listOptions: listOptions,
-			resources: lo.Map(resourceList.Items, func(object unstructured.Unstructured, _ int) k8s.OrderedResourceFields {
-				return lo.Map(resources.GetResourceView(gvr.Resource).Fields, func(field resources.ResourceViewField, _ int) string {
-					// TODO: handle more gracefully
-					return lo.Must(field.Resolver.Resolve(&object))
-				})
-			}),
+			gvr:           gvr,
+			namespace:     namespace,
+			listOptions:   listOptions,
+			resources:     resolvedResources,
+			creationTimes: creationTimes,
 		}
 	}
 }
@@ -245,26 +253,24 @@ func (m *Model) watchResources(gvr schema.GroupVersionResource, namespace string
 					return lo.Must(field.Resolver.Resolve(obj))
 				})
 
+				ct := obj.GetCreationTimestamp().Time
+
 				switch e.Type {
 				case watch.Added:
 					if index == -1 {
 						m.resources = append(m.resources, fields)
+						m.creationTimes = append(m.creationTimes, ct)
 
-						// TODO: this is expensive, but we can find cheaper
-						// or better alternative later.
 						nameIndex, nameOk := k8s.NameColumn(m.table.Columns())
 						namespaceIndex, nsOk := k8s.NamespaceColumn(m.table.Columns())
 
-						// TODO: this is how kubernetes resources are
-						// assumed to be sorted. i.e. by name and namespace.
-						sortIndex := func(index int) func(int, int) bool {
-							return func(i, j int) bool { return strings.Compare(m.resources[i][index], m.resources[j][index]) < 0 }
+						// Sort by namespace first (if present), then by name.
+						// Both slices are kept in sync via sortResourcesByColumn.
+						if nsOk && namespaceIndex >= 0 {
+							m.sortResourcesByColumn(namespaceIndex)
 						}
 						if nameOk && nameIndex >= 0 {
-							sort.Slice(m.resources, sortIndex(nameIndex))
-						}
-						if nsOk && namespaceIndex >= 0 {
-							sort.Slice(m.resources, sortIndex(namespaceIndex))
+							m.sortResourcesByColumn(nameIndex)
 						}
 					}
 				case watch.Modified:
@@ -275,6 +281,7 @@ func (m *Model) watchResources(gvr schema.GroupVersionResource, namespace string
 						continue
 					}
 					m.resources[index] = fields
+					m.creationTimes[index] = ct
 				case watch.Deleted:
 					if index == -1 {
 						// Resource not found - already removed or list was reloaded. Skip.
@@ -282,6 +289,7 @@ func (m *Model) watchResources(gvr schema.GroupVersionResource, namespace string
 						continue
 					}
 					m.resources = slices.Delete(m.resources, index, index+1)
+					m.creationTimes = slices.Delete(m.creationTimes, index, index+1)
 				}
 
 				for !m.tryQueueTableUpdate() {

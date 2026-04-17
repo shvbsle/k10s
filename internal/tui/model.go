@@ -84,6 +84,15 @@ type Model struct {
 	logLinesChan      <-chan k8s.LogLine // Channel for receiving streamed log lines
 	horizontalOffset  int                // Horizontal scroll offset for table view (in characters)
 	mouse             *MouseHandler      // Encapsulated mouse interaction state and logic
+
+	// creationTimes holds the creation timestamp for each resource in
+	// m.resources at the same index. This allows the periodic age-refresh
+	// tick to recompute age strings without hitting the API server — critical
+	// for hyperscale clusters (10k+ nodes, 1M+ pods).
+	creationTimes []time.Time
+	// ageColumnIndex caches the position of the "Age" column in the current
+	// resource view so the refresh tick can update it in O(1) per row.
+	ageColumnIndex int
 }
 
 func (m *Model) tryQueueTableUpdate() bool {
@@ -95,6 +104,16 @@ func (m *Model) tryQueueTableUpdate() bool {
 	}
 }
 
+// scheduleRefreshTick returns a command that sends a refreshTickMsg after the
+// configured interval. This recomputes age strings client-side without any API
+// calls, making it safe for hyperscale clusters with millions of resources.
+func (m *Model) scheduleRefreshTick() tea.Cmd {
+	d := time.Duration(config.DefaultAgeRefreshInterval) * time.Second
+	return tea.Tick(d, func(time.Time) tea.Msg {
+		return refreshTickMsg{}
+	})
+}
+
 type updateTableMsg struct{}
 
 type errMsg struct{ err error }
@@ -102,10 +121,11 @@ type errMsg struct{ err error }
 func (e errMsg) Error() string { return e.err.Error() }
 
 type resourcesLoadedMsg struct {
-	resources   []k8s.OrderedResourceFields
-	gvr         schema.GroupVersionResource
-	namespace   string
-	listOptions metav1.ListOptions
+	resources     []k8s.OrderedResourceFields
+	creationTimes []time.Time
+	gvr           schema.GroupVersionResource
+	namespace     string
+	listOptions   metav1.ListOptions
 }
 
 type logsLoadedMsg struct {
@@ -181,6 +201,24 @@ type logStreamErrorMsg struct {
 
 // logStreamStoppedMsg is sent when the log stream is stopped
 type logStreamStoppedMsg struct{}
+
+// refreshTickMsg is sent periodically to recompute age strings client-side
+// from cached creation timestamps. No API calls are made.
+type refreshTickMsg struct{}
+
+// cacheCreationTimes finds the age column index for the current resource view
+// so the refresh tick can update age strings in O(1) per row. Creation
+// timestamps themselves are populated by loadResourcesWithNamespace and
+// maintained incrementally by the watch goroutine.
+func (m *Model) cacheCreationTimes() {
+	m.ageColumnIndex = -1
+	for i, f := range resources.GetResourceView(m.currentGVR.Resource).Fields {
+		if f.Resolver.FuncName == k8s.ResolverFuncAge {
+			m.ageColumnIndex = i
+			break
+		}
+	}
+}
 
 // New creates a new TUI model with the provided configuration and Kubernetes client.
 // The client may be nil or disconnected - the TUI will handle this gracefully and
@@ -462,6 +500,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case resourcesLoadedMsg:
 		m.resources = msg.resources
+		m.creationTimes = msg.creationTimes
 		m.logLines = nil       // Clear log lines when loading resources
 		m.horizontalOffset = 0 // Reset horizontal scroll on resource change
 
@@ -481,7 +520,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateTableData()
 		m.table.SetCursor(0)
 
-		return m, m.watchResources(msg.gvr, msg.namespace)
+		// Cache creation timestamps and find the age column index so the
+		// periodic refresh tick can update ages client-side in O(n) without
+		// any API calls.
+		m.cacheCreationTimes()
+
+		return m, tea.Batch(
+			m.watchResources(msg.gvr, msg.namespace),
+			m.scheduleRefreshTick(),
+		)
+
+	case refreshTickMsg:
+		// Only refresh if we're viewing a resource list (not logs/describe/yaml)
+		switch m.currentGVR.Resource {
+		case k8s.ResourceLogs, k8s.ResourceDescribe, k8s.ResourceYaml, "contexts", "namespaces", "":
+			return m, nil
+		}
+
+		// Client-side age refresh: recompute age strings from cached timestamps.
+		// No API calls — O(n) string updates only. Safe at 1M+ resources.
+		if idx := m.ageColumnIndex; idx >= 0 && len(m.resources) > 0 && idx < len(m.resources[0]) {
+			for i := range m.resources {
+				if i < len(m.creationTimes) && !m.creationTimes[i].IsZero() {
+					m.resources[i][idx] = k8s.FormatAge(m.creationTimes[i])
+				}
+			}
+			m.updateTableData()
+		}
+
+		// Re-schedule the next tick (self-sustaining loop, no compounding)
+		return m, m.scheduleRefreshTick()
 
 	case logsLoadedMsg:
 		m.logLines = msg.logLines
