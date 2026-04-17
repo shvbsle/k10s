@@ -31,8 +31,8 @@ brews:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     name: k10s
-    description: "A modern terminal UI for Kubernetes"
-    homepage: "https://github.com/shvbsle/k10s"
+    description: "k10s — A modern, fast Kubernetes terminal dashboard with vim keybindings"
+    homepage: "https://k10s.dev"
     license: "Apache-2.0"
     install: |
       bin.install "k10s"
@@ -45,9 +45,9 @@ brews:
 nfpms:
   - package_name: k10s
     formats: [deb, rpm]
-    homepage: "https://github.com/shvbsle/k10s"
+    homepage: "https://k10s.dev"
     maintainer: "shvbsle <me@users.noreply.github.com>"
-    description: "A modern terminal UI for Kubernetes"
+    description: "k10s — A modern, fast Kubernetes terminal dashboard (TUI) with vim keybindings and plugin system"
     license: Apache-2.0
     file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     contents:
@@ -57,7 +57,7 @@ nfpms:
         dst: /usr/share/doc/k10s/README.md
     rpm:
       group: Applications/System
-      summary: A modern terminal UI for Kubernetes
+      summary: "k10s — A modern, fast Kubernetes terminal dashboard with vim keybindings"
 
 changelog:
   use: git

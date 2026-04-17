@@ -16,7 +16,7 @@ version: ## Display the current version
 check: tidy fmt vet lint ## Run quality checks
 
 build: check test ## Build k10s
-	$(GO) build -trimpath -ldflags="-s -w -X $(MOD)/internal/core.Version=$$(git describe --tags --always --dirty)" -o bin/$(BINARY) ./cmd/k10s
+	$(GO) build -trimpath -ldflags="-s -w -X $(MOD)/internal/tui.Version=$$(git describe --tags --always --dirty)" -o bin/$(BINARY) ./cmd/k10s
 
 run: build ## Run k10s
 	./bin/$(BINARY)

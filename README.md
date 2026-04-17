@@ -1,15 +1,23 @@
-# k10s
+# k10s — A Modern Kubernetes Terminal Dashboard
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.24%2B-00ADD8.svg)](https://golang.org/)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-1.25%2B-326ce5.svg)](https://kubernetes.io/)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/rngaJustFD)
 
-🙀 A modern, pretty TUI for Kubernetes, tuned for AI Hyperscaler clusters. 
+**k10s** is a fast, modern Kubernetes terminal dashboard (TUI) built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea). Navigate pods, nodes, namespaces, services, and container logs with vim keybindings — a lightweight, extensible alternative to [k9s](https://k9scli.io/) designed for large-scale and AI hyperscaler clusters.
 
-Built with Go + Bubble Tea.
+🌐 **Website:** [https://k10s.dev](https://k10s.dev)
 
-![asciicast](./assets/k10s-demo-dark.gif)
+![k10s Kubernetes terminal dashboard demo](./assets/k10s-demo-dark.gif)
+
+## Why k10s?
+
+- **Faster than k9s** for large clusters with thousands of pods and nodes
+- **Vim-native navigation** — `j/k`, `h/l`, `g/G`, `:` command mode — feels like home
+- **Drill-down workflow** — pod → containers → logs, all without leaving the terminal
+- **Plugin system** — extend k10s with custom commands, games, and tools
+- **Lightweight** — single binary, zero runtime dependencies
 
 ## Features
 
@@ -20,6 +28,7 @@ Built with Go + Bubble Tea.
 - **Log Viewing**: View container logs with timestamps, text wrapping (`w`), autoscroll (`s`), and fullscreen mode (`f`)
 - **Customizable**: Configure page sizes and UI elements via `~/.k10s.conf`
 - **Fast & Lightweight**: Built in Go with minimal dependencies
+- **Plugin System**: Extend k10s with custom commands and tools
 
 ## Installation
 
@@ -293,6 +302,20 @@ func (p *MyPlugin) Launch() error {
 ```
 
 For more details, see [internal/plugins/README.md](internal/plugins/README.md).
+
+## Comparison: k10s vs k9s
+
+| Feature | k10s | k9s |
+|---------|------|-----|
+| Vim keybindings | ✅ Native | ✅ Partial |
+| Command mode (`:`) | ✅ | ✅ |
+| Plugin system | ✅ | ❌ |
+| Drill-down navigation | ✅ Pod → Container → Logs | ✅ |
+| Log search & wrapping | ✅ | ✅ |
+| Configurable page sizes | ✅ | ❌ |
+| Custom ASCII logo | ✅ | ❌ |
+| Single binary | ✅ | ✅ |
+| Built with | Go + Bubble Tea | Go + tcell |
 
 ## Development
 
