@@ -1,34 +1,35 @@
-# k10s — A Modern Kubernetes Terminal Dashboard
+# k10s: A GPU-Aware Kubernetes Terminal Dashboard
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Go Version](https://img.shields.io/badge/go-1.24%2B-00ADD8.svg)](https://golang.org/)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-1.25%2B-326ce5.svg)](https://kubernetes.io/)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/rngaJustFD)
 
-**k10s** is a fast, modern Kubernetes terminal dashboard (TUI) built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea). Navigate pods, nodes, namespaces, services, and container logs with vim keybindings — a lightweight, extensible alternative to [k9s](https://k9scli.io/) designed for large-scale and AI hyperscaler clusters.
+**k10s** is a GPU-aware Kubernetes TUI. See which GPUs are actually doing work, which are burning money idle, and why your training job's ranks are scattered across the cluster. Vim keybindings. Single binary.
 
-🌐 **Website:** [https://k10s.dev](https://k10s.dev)
+[k10s.dev](https://k10s.dev)
 
-![k10s Kubernetes terminal dashboard demo](./assets/k10s-demo-dark.gif)
+![k10s GPU-aware Kubernetes terminal dashboard demo](./assets/k10s-demo-dark.gif)
 
 ## Why k10s?
 
-- **Faster than k9s** for large clusters with thousands of pods and nodes
-- **Vim-native navigation** — `j/k`, `h/l`, `g/G`, `:` command mode — feels like home
-- **Drill-down workflow** — pod → containers → logs, all without leaving the terminal
-- **Plugin system** — extend k10s with custom commands, games, and tools
-- **Lightweight** — single binary, zero runtime dependencies
+Most Kubernetes dashboards treat a GPU node like any other node. They have no idea an H100 costs $3/hr and is sitting at 4% utilization. k10s closes that gap.
 
-## Features
+- **GPUs and jobs are the atoms, not pods.** The default view is a fleet-level GPU dashboard with per-node utilization bars, memory, temperature, power draw, and workload attribution. Pods are an implementation detail you drill into when needed.
+- **Idle GPUs are loud, not quiet.** Idle nodes sort to the top and glow amber. An unallocated H100 is $3/hr on fire. k10s makes that impossible to miss.
+- **Training job awareness.** Group pods by `Job`, `JobSet`, `RayJob`, `PyTorchJob`, or `MPIJob`. See rank status, gang-scheduling state, and restart counts as one logical unit instead of 64 unrelated pods.
+- **Drill-down, not sprawl.** Fleet > node > GPU > workload. Enter drills in, Esc goes back. Dedicated keys for context-filtered jumps: workloads (`w`), events (`e`), jobs (`g`).
+- **Works without DCGM.** GPU count and workload mapping come from the k8s API. Install DCGM exporter for live utilization, memory, temp, and power. k10s degrades gracefully without it.
 
-- **Drill-Down Navigation**: Press `Enter` on any pod to view its containers, then drill into container logs with full text wrapping and search
-- **Paginated Tables**: Browse pods, nodes, and namespaces with configurable page sizes
-- **Vim Keybindings**: Navigate efficiently with `j/k`, `h/l`, `g/G`, and command mode with `:`
-- **Command Mode**: Type `:` to enter command mode, then use commands like `pods`, `nodes`, `ns`, or `quit`
-- **Log Viewing**: View container logs with timestamps, text wrapping (`w`), autoscroll (`s`), and fullscreen mode (`f`)
-- **Customizable**: Configure page sizes and UI elements via `~/.k10s.conf`
-- **Fast & Lightweight**: Built in Go with minimal dependencies
-- **Plugin System**: Extend k10s with custom commands and tools
+## Roadmap
+
+- [ ] Fleet view as default landing screen: per-node GPU count, utilization bars, workload attribution, idle detection from k8s API
+- [ ] Loud-idle visual treatment: amber highlight for idle nodes, sorted to top by idle duration
+- [ ] Node detail view: Enter on a node drills into per-GPU breakdown (index, utilization, memory, temp, power, workload, training rank)
+- [ ] DCGM exporter integration: scrape Prometheus metrics for live GPU utilization, memory, temperature, and power; degrade gracefully without it
+- [ ] Jobs view: group pods by parent training CRD (`Job`/`JobSet`/`RayJob`/`PyTorchJob`/`MPIJob`), show rank counts, status, restarts, Kueue queue
+- [ ] Context-filtered jumps: `w` for workloads, `e` for events, `g` for jobs, all scoped to the current node
+- [ ] Kueue queue integration: admission state, queue depth, pending workload visibility
+- [ ] "Why is this GPU idle?" diagnostic: rule-based explanation of taint mismatches, resource fit, affinity, scheduling failures, PDB blocks
 
 ## Installation
 
@@ -39,69 +40,13 @@ brew tap shvbsle/tap
 brew install k10s
 ```
 
-### Linux (RPM-based: Amazon Linux, RHEL, CentOS, Fedora)
-
-```bash
-# Download the latest release
-wget https://github.com/shvbsle/k10s/releases/latest/download/k10s_0.1.1_linux_amd64.rpm
-
-# Install
-sudo yum install ./k10s_0.1.1_linux_amd64.rpm
-
-# Or using rpm directly
-sudo rpm -i k10s_0.1.1_linux_amd64.rpm
-```
-
-### Linux (DEB-based: Debian, Ubuntu)
-
-```bash
-# Download the latest release
-wget https://github.com/shvbsle/k10s/releases/latest/download/k10s_0.1.1_linux_amd64.deb
-
-# Install
-sudo dpkg -i k10s_0.1.1_linux_amd64.deb
-```
-
-### Direct Binary Download
-
-Download the latest release for your platform from [GitHub Releases](https://github.com/shvbsle/k10s/releases):
-
-```bash
-# macOS ARM (M1/M2/M3)
-wget https://github.com/shvbsle/k10s/releases/latest/download/k10s_0.1.1_darwin_arm64.tar.gz
-tar -xzf k10s_0.1.1_darwin_arm64.tar.gz
-sudo mv k10s /usr/local/bin/
-
-# macOS Intel
-wget https://github.com/shvbsle/k10s/releases/latest/download/k10s_0.1.1_darwin_amd64.tar.gz
-tar -xzf k10s_0.1.1_darwin_amd64.tar.gz
-sudo mv k10s /usr/local/bin/
-
-# Linux AMD64
-wget https://github.com/shvbsle/k10s/releases/latest/download/k10s_0.1.1_linux_amd64.tar.gz
-tar -xzf k10s_0.1.1_linux_amd64.tar.gz
-sudo mv k10s /usr/local/bin/
-```
-
-### From Source
-
-```bash
-git clone https://github.com/shvbsle/k10s.git
-cd k10s
-make build
-```
-
-The binary will be available at `bin/k10s`.
-
 ### Go Install
 
 ```bash
 go install github.com/shvbsle/k10s/cmd/k10s@latest
 ```
 
-### Running
-
-Once installed, start k10s:
+Then run:
 
 ```bash
 k10s
@@ -111,276 +56,62 @@ k10s
 
 ### Keybindings
 
-#### Normal Mode
-- `j` or `↓`: Move down in the table
-- `k` or `↑`: Move up in the table
-- `h` or `←` or `PgUp`: Previous page
-- `l` or `→` or `PgDown`: Next page
-- `g`: Jump to top of table
-- `G`: Jump to bottom of table
-- `Enter`: Drill down into selected resource (pod → containers → logs)
-- `Esc`: Go back to previous view
+#### Fleet / Table Views
+- `j` / `↓`: Move down
+- `k` / `↑`: Move up
+- `h` / `←` / `PgUp`: Previous page
+- `l` / `→` / `PgDown`: Next page
+- `g`: Jump to top
+- `G`: Jump to bottom
+- `Enter`: Drill down (fleet → node detail → GPU → workload)
+- `Esc`: Go back one level
+- `w`: Workloads view, filtered to current node
+- `e`: Events view, filtered to current node
 - `:`: Enter command mode
-- `:quit` or `:q`: Quit k10s
 
-#### Log View Mode
-When viewing container logs:
+#### Log View
 - `w`: Toggle text wrapping
 - `t`: Toggle timestamps
 - `s`: Toggle autoscroll
-- `f`: Toggle fullscreen mode
-- `Esc`: Go back to container list
-
-#### Command Mode
-- Type a command and press `Enter` to execute
-- Press `Esc` to cancel and return to normal mode
+- `f`: Toggle fullscreen
+- `Esc`: Back to previous view
 
 ### Commands
 
-When in command mode (press `:`), you can use:
+Press `:` to enter command mode:
 
-- `pods` or `po`: Show all pods across all namespaces
-- `pods <namespace>`: Show pods in specific namespace
-- `nodes` or `no`: Show all nodes in the cluster
-- `namespaces` or `ns`: Show all namespaces
-- `services` or `svc`: Show all services
-- `quit` or `q`: Exit k10s
-
-## Configuration
-
-k10s reads configuration from `~/.k10s.conf`. On first run, a default config file is created automatically.
-
-### Example Configuration
-
-```conf
-# k10s configuration file
-# Number of items per page in table views
-page_size=20
-
-# Pagination style: "bubbles" (dots) or "verbose" (text like "Page 1/10")
-# Default: bubbles
-pagination_style=bubbles
-
-# ASCII logo (between logo_start and logo_end)
-logo_start
- /\_/\
-( o.o )
- > Y <
-logo_end
-```
-
-### Configuration Options
-
-- `page_size`: Number of rows to display per page (default: 20)
-- `pagination_style`: Pagination display style - `bubbles` for dot-based paginator or `verbose` for text like "Page 1/10" (default: bubbles)
-- `logo_start`/`logo_end`: Custom ASCII art logo to display
-
-## Plugins
-
-k10s features a built-in extensible plugin system that allows adding custom functionality like games, tools, or utilities. The plugin architecture is a core k10s feature designed to enable seamless integration of additional commands while maintaining isolation between plugins and the core system.
-
-### Available Plugins
-
-#### Kitten Climber (Built-in)
-
-A fun infinite runner platformer game! Try typing `:play`, `:game`, or `:kitten` to launch it.
-
-**Features**:
-- Infinite procedural platform generation
-- Pattern-based fish collectibles with combo system
-- High score persistence (stored in `~/.k10s/plugins/kitten/highscores.json`)
-- Space theme with stars
-- Progressive difficulty scaling
-
-### Adding Your Own Plugin
-
-Plugins are compiled into k10s and implement a simple interface. Here's how to create one:
-
-#### 1. Create Plugin Directory
-
-```bash
-mkdir -p internal/plugins/myplugin
-```
-
-#### 2. Implement the Plugin Interface
-
-Create `internal/plugins/myplugin/myplugin.go`:
-
-```go
-package myplugin
-
-import "github.com/shvbsle/k10s/internal/plugins"
-
-type MyPlugin struct{}
-
-func (p *MyPlugin) Name() string {
-    return "my-plugin"
-}
-
-func (p *MyPlugin) Description() string {
-    return "A description of what my plugin does"
-}
-
-func (p *MyPlugin) Commands() []string {
-    return []string{"myplugin", "mp"}  // Command aliases
-}
-
-func (p *MyPlugin) Launch() error {
-    // Your plugin logic here
-    fmt.Println("Hello from my plugin!")
-    return nil
-}
-
-func New() *MyPlugin {
-    return &MyPlugin{}
-}
-```
-
-#### 3. Register Your Plugin
-
-In `cmd/k10s/main.go`, import and register your plugin:
-
-```go
-import (
-    // ... existing imports ...
-    "github.com/shvbsle/k10s/internal/plugins/myplugin"
-)
-
-func main() {
-    // ... existing setup ...
-
-    // Initialize plugin registry
-    pluginRegistry := plugins.NewRegistry()
-    pluginRegistry.Register(kitten.New())
-    pluginRegistry.Register(myplugin.New())  // Add your plugin
-
-    // ... rest of main ...
-}
-```
-
-#### 4. Build and Test
-
-```bash
-make build
-./bin/k10s
-# Type :myplugin to launch your plugin
-```
-
-### Plugin Interface Reference
-
-See the [`Plugin` interface definition](internal/plugins/plugin.go#L8-L23) for the complete API with documentation.
-
-Plugins implement:
-- `Name()` - Unique identifier (kebab-case)
-- `Description()` - Shown in help text
-- `Commands()` - Command aliases (e.g., ["play", "game"])
-- `Launch()` - Execute plugin, returns to k10s on exit
-
-### Plugin Guidelines
-
-- **Commands**: Use short, memorable command aliases (e.g., `play`, `debug`, `tool`)
-- **Error Handling**: Handle errors gracefully within your plugin
-- **Dependencies**: Add any required dependencies to `go.mod`
-- **Data Storage**: Store plugin data in isolated directories to avoid cross-contamination
-  - Use `config.GetPluginDataDir(pluginName)` to get your plugin's data directory
-  - Path format: `~/.k10s/plugins/{plugin-name}/`
-  - Each plugin gets its own isolated directory automatically created
-  - Example: High scores for kitten are stored in `~/.k10s/plugins/kitten/highscores.json`
-
-### Example: TUI-based Plugin
-
-For TUI-based plugins using Bubble Tea:
-
-```go
-func (p *MyPlugin) Launch() error {
-    program := tea.NewProgram(myModel{})
-    if _, err := program.Run(); err != nil {
-        return fmt.Errorf("error running plugin: %w", err)
-    }
-    return nil  // Return to k10s after plugin exits
-}
-```
-
-For more details, see [internal/plugins/README.md](internal/plugins/README.md).
-
-## Comparison: k10s vs k9s
-
-| Feature | k10s | k9s |
-|---------|------|-----|
-| Vim keybindings | ✅ Native | ✅ Partial |
-| Command mode (`:`) | ✅ | ✅ |
-| Plugin system | ✅ | ❌ |
-| Drill-down navigation | ✅ Pod → Container → Logs | ✅ |
-| Log search & wrapping | ✅ | ✅ |
-| Configurable page sizes | ✅ | ❌ |
-| Custom ASCII logo | ✅ | ❌ |
-| Single binary | ✅ | ✅ |
-| Built with | Go + Bubble Tea | Go + tcell |
+- `pods` or `po`: All pods (all namespaces)
+- `pods <namespace>`: Pods in a specific namespace
+- `nodes` or `no`: All nodes
+- `namespaces` or `ns`: All namespaces
+- `services` or `svc`: All services
+- `jobs`: Training jobs view
+- `quit` or `q`: Exit
 
 ## Development
 
 ### Prerequisites
 
-- Go 1.24 or later
-- Access to a Kubernetes cluster (via `~/.kube/config` or in-cluster config)
-
-### Building
+- Access to a Kubernetes cluster (via `~/.kube/config`)
 
 ```bash
-make build
-```
-
-### Running
-
-```bash
-make run
-```
-
-### Testing
-
-```bash
-make test
-```
-
-### Linting
-
-```bash
-make lint
-```
-
-### Code Formatting
-
-```bash
-make fmt
+make build    # Build
+make run      # Run
+make test     # Test
+make lint     # Lint
+make fmt      # Format
 ```
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-### Roadmap
-
-Check out our [roadmap.md](roadmap.md) for a list of planned features and improvements. This is a great place to find tasks to pick up if you're looking to contribute!
+Contributions are welcome. Check the [roadmap](roadmap.md) for planned work.
 
 ## Community
-
-Join the k10s community on Discord to:
-- 💬 Get help and support
-- 🚀 Share your k10s workflows and configurations
-- 🐛 Report bugs and request features
-- 🤝 Connect with other Kubernetes enthusiasts
-- 📢 Stay updated on the latest developments
 
 [![Join our Discord](https://img.shields.io/badge/Discord-Join%20k10s.dev-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/rngaJustFD)
 
 **Discord:** [https://discord.gg/rngaJustFD](https://discord.gg/rngaJustFD)
 
-We'd love to hear from you!
-
-## Releasing
-
-See [RELEASING.md](RELEASING.md) for detailed instructions on creating releases.
-
 ## License
 
-Apache 2.0 - see LICENSE file for details
+Apache 2.0. See [LICENSE](LICENSE) for details.
