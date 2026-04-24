@@ -19,7 +19,7 @@ const (
 	// DefaultLogTailLines is the default number of log lines to fetch.
 	DefaultLogTailLines = 100
 	// DefaultLogo is the default ASCII art logo displayed in the TUI header.
-	DefaultLogo = " /\\_/\\\n( o.o )\n> Y <"
+	DefaultLogo = " /\\_/\\ \n( o.o )\n > Y < "
 	// DefaultPaginationStyle is the default pagination display style.
 	DefaultPaginationStyle = PaginationStyleBubbles
 	// DefaultLogFilePath is the default path for k10s logs.
