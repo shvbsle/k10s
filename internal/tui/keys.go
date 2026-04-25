@@ -30,6 +30,9 @@ type keyMap struct {
 	Shell    key.Binding
 	// Filter/search
 	FilterLogs key.Binding
+	// Fleet view tab switching
+	FleetTabNext key.Binding
+	FleetTabPrev key.Binding
 }
 
 // newKeyMap creates a new keyMap with all bindings configured
@@ -126,6 +129,14 @@ func newKeyMap() keyMap {
 		FilterLogs: key.NewBinding(
 			key.WithKeys("/"),
 			key.WithHelp("/", "filter"),
+		),
+		FleetTabNext: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "next tab"),
+		),
+		FleetTabPrev: key.NewBinding(
+			key.WithKeys("shift+tab"),
+			key.WithHelp("⇧tab", "prev tab"),
 		),
 	}
 }

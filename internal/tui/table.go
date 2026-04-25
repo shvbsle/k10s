@@ -379,8 +379,19 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 	}
 
 	headerText := fmt.Sprintf(" %s [%s] (%d) ", k8s.FormatGVR(m.currentGVR), nsDisplay, len(m.resources))
+	preStyled := false
+
+	// Fleet view: show GPU/CPU counts with active tab highlighting
+	if m.currentGVR.Resource == k8s.ResourceNodes && m.fleetView != nil {
+		gvrStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+		headerText = fmt.Sprintf(" %s %s ",
+			gvrStyle.Render(fmt.Sprintf("%s [%s]", k8s.FormatGVR(m.currentGVR), nsDisplay)),
+			m.fleetView.RenderCountBadge())
+		preStyled = true
+	}
+
 	if m.horizontalOffset > 0 {
-		headerText = fmt.Sprintf(" %s [%s] (%d) ◀ scroll:%d ", k8s.FormatGVR(m.currentGVR), nsDisplay, len(m.resources), m.horizontalOffset)
+		headerText += fmt.Sprintf("◀ scroll:%d ", m.horizontalOffset)
 	}
 	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 
@@ -401,7 +412,12 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 	}
 
 	// Build custom top border with centered title
-	topBorder := m.buildTopBorderWithTitle(headerText, tableWidth, borderColor, headerStyle)
+	// For fleet view, the header text is already styled by RenderCountBadge
+	style := headerStyle
+	if preStyled {
+		style = lipgloss.NewStyle()
+	}
+	topBorder := m.buildTopBorderWithTitle(headerText, tableWidth, borderColor, style)
 	b.WriteString(topBorder)
 	b.WriteString("\n")
 
@@ -420,7 +436,7 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 			if i >= len(effectiveWidths) {
 				break
 			}
-			cellWidth := runewidth.StringWidth(cell)
+			cellWidth := lipgloss.Width(cell)
 			if cellWidth > effectiveWidths[i] {
 				effectiveWidths[i] = cellWidth
 			}
@@ -610,6 +626,13 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 				cellText = style.Render(cell)
 			}
 
+			// For selected/hovered rows, strip ANSI from cells that contain
+			// pre-rendered styled content like allocation bars to avoid
+			// nested ANSI sequences that break after truncation.
+			if (isSelected || isHovered) && lipgloss.Width(cellText) != runewidth.StringWidth(cellText) {
+				cellText = ansi.Strip(cellText)
+			}
+
 			cellWidth := lipgloss.Width(cellText)
 			if i < len(effectiveWidths) && cellWidth < effectiveWidths[i] {
 				// Pad to effective column width
@@ -639,8 +662,8 @@ func (m *Model) renderTableWithHeader(b *strings.Builder) {
 func (m *Model) buildTopBorderWithTitle(title string, width int, borderColor color.Color, titleStyle lipgloss.Style) string {
 	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
 
-	// Calculate centering - leftDashes + titleLen + rightDashes = width
-	titleLen := runewidth.StringWidth(title)
+	// Use lipgloss.Width for ANSI-aware width calculation
+	titleLen := lipgloss.Width(title)
 	leftDashes := (width - titleLen) / 2
 	rightDashes := width - titleLen - leftDashes
 

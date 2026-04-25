@@ -2,15 +2,18 @@ package tui
 
 import (
 	"slices"
+	"time"
 
 	"github.com/shvbsle/k10s/internal/k8s"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // ModelMemento captures Model state for drill-down navigation.
 type ModelMemento struct {
 	resources        []k8s.OrderedResourceFields
+	creationTimes    []time.Time
 	currentGVR       schema.GroupVersionResource
 	currentNamespace string
 	listOptions      metav1.ListOptions
@@ -20,6 +23,11 @@ type ModelMemento struct {
 	logView          *LogViewState
 	resourceName     string
 	namespace        string
+
+	// Fleet view state — only populated when navigating away from nodes view
+	allResources     []k8s.OrderedResourceFields
+	allCreationTimes []time.Time
+	rawObjects       []unstructured.Unstructured
 }
 
 // NavigationHistory manages navigation state as a stack.

@@ -9,6 +9,20 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+// allocContext holds pre-computed allocation bar strings keyed by node name.
+// It is set before resolver execution and cleared after.
+var allocContext map[string]string
+
+// SetAllocContext sets the allocation context map used by the allocBar resolver.
+func SetAllocContext(ctx map[string]string) {
+	allocContext = ctx
+}
+
+// ClearAllocContext clears the allocation context map.
+func ClearAllocContext() {
+	allocContext = nil
+}
+
 // resolverMap maps function names (referenced in resource.views.json) to their
 // implementations. Each function extracts a display value from an unstructured
 // Kubernetes object.
@@ -21,6 +35,36 @@ var resolverMap = map[string]func(*unstructured.Unstructured) (string, error){
 	},
 	"restarts": func(obj *unstructured.Unstructured) (string, error) {
 		return k8s.PodRestartCount(obj), nil
+	},
+	"instanceType": func(obj *unstructured.Unstructured) (string, error) {
+		it := k8s.InstanceType(obj)
+		if it == "" {
+			return "—", nil
+		}
+		return it, nil
+	},
+	"computeType": func(obj *unstructured.Unstructured) (string, error) {
+		class := k8s.ClassifyNode(obj)
+		switch class {
+		case k8s.NodeClassGPU_NVIDIA:
+			return fmt.Sprintf("gpu/nvidia %d×", k8s.GPUCapacity(obj)), nil
+		case k8s.NodeClassGPU_Neuron:
+			return fmt.Sprintf("gpu/neuron %d×", k8s.GPUCapacity(obj)), nil
+		default:
+			return "cpu", nil
+		}
+	},
+	"allocBar": func(obj *unstructured.Unstructured) (string, error) {
+		if allocContext == nil {
+			return "—", nil
+		}
+		if val, ok := allocContext[obj.GetName()]; ok {
+			return val, nil
+		}
+		return "—", nil
+	},
+	"nodeStatus": func(obj *unstructured.Unstructured) (string, error) {
+		return k8s.NodeReadyStatus(obj), nil
 	},
 }
 

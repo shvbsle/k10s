@@ -202,6 +202,44 @@ func (m *Model) loadResourcesWithNamespace(gvr schema.GroupVersionResource, name
 		}
 
 		items := resourceList.Items
+
+		// For nodes, fetch pods and build pod count per node for the allocation bar.
+		// Shows scheduled pods vs allocatable pod capacity — same concept as eks-node-viewer.
+		if gvr.Resource == k8s.ResourceNodes {
+			podCountByNode := make(map[string]int)
+
+			podsGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
+			podList, podErr := m.k8sClient.Dynamic().Resource(podsGVR).Namespace(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+			if podErr != nil {
+				log.G().Error("failed to load pods for allocation", "error", podErr)
+			} else {
+				for i := range podList.Items {
+					nodeName, found, err := unstructured.NestedString(podList.Items[i].Object, "spec", "nodeName")
+					if err != nil || !found || nodeName == "" {
+						continue
+					}
+					podCountByNode[nodeName]++
+				}
+			}
+
+			allocMap := make(map[string]string, len(items))
+			for i := range items {
+				name := items[i].GetName()
+				maxPods := k8s.AllocatablePods(&items[i])
+				running := podCountByNode[name]
+				var pct float64
+				if maxPods > 0 {
+					pct = float64(running) / float64(maxPods)
+				}
+				if pct > 1.0 {
+					pct = 1.0
+				}
+				pctInt := int(pct * 100)
+				allocMap[name] = fmt.Sprintf("%s %d%% (%d pods)", RenderAllocBar(pct, 15), pctInt, running)
+			}
+			resources.SetAllocContext(allocMap)
+		}
+
 		resolvedResources := make([]k8s.OrderedResourceFields, len(items))
 		creationTimes := make([]time.Time, len(items))
 
@@ -213,12 +251,24 @@ func (m *Model) loadResourcesWithNamespace(gvr schema.GroupVersionResource, name
 			})
 		}
 
+		if gvr.Resource == k8s.ResourceNodes {
+			resources.ClearAllocContext()
+		}
+
+		// Keep raw objects for the fleet view so we can classify and filter
+		// nodes without re-fetching from the API.
+		var rawObjects []unstructured.Unstructured
+		if gvr.Resource == k8s.ResourceNodes {
+			rawObjects = items
+		}
+
 		return resourcesLoadedMsg{
 			gvr:           gvr,
 			namespace:     namespace,
 			listOptions:   listOptions,
 			resources:     resolvedResources,
 			creationTimes: creationTimes,
+			rawObjects:    rawObjects,
 		}
 	}
 }
@@ -258,15 +308,45 @@ func (m *Model) watchResources(gvr schema.GroupVersionResource, namespace string
 					return nameMatch && lo.IndexOf(r, obj.GetNamespace()) != -1
 				})
 
+				// For fleet view, also check allResources to avoid duplicates
+				// since m.resources is a filtered subset.
+				allIndex := -1
+				if gvr.Resource == k8s.ResourceNodes && m.fleetView != nil {
+					for ai, row := range m.allResources {
+						if len(row) > 0 && row[0] == obj.GetName() {
+							allIndex = ai
+							break
+						}
+					}
+				}
+
 				fields := lo.Map(resources.GetResourceView(gvr.Resource).Fields, func(field resources.ResourceViewField, _ int) string {
 					return lo.Must(field.Resolver.Resolve(obj))
 				})
+
+				// For nodes, the allocBar resolver returns "—" during watch events
+				// because allocContext is nil. Preserve the existing usage value.
+				if gvr.Resource == k8s.ResourceNodes && allIndex >= 0 && allIndex < len(m.allResources) {
+					for ci, f := range resources.GetResourceView(gvr.Resource).Fields {
+						if f.Resolver.FuncName == "allocBar" && ci < len(fields) && ci < len(m.allResources[allIndex]) {
+							fields[ci] = m.allResources[allIndex][ci]
+							break
+						}
+					}
+				}
 
 				ct := obj.GetCreationTimestamp().Time
 
 				switch e.Type {
 				case watch.Added:
-					if index == -1 {
+					// For fleet view, use allIndex to check for duplicates
+					// since m.resources is a filtered subset
+					isDuplicate := index != -1
+					if gvr.Resource == k8s.ResourceNodes && m.fleetView != nil {
+						isDuplicate = allIndex != -1
+					}
+
+					if !isDuplicate {
 						m.resources = append(m.resources, fields)
 						m.creationTimes = append(m.creationTimes, ct)
 
@@ -281,24 +361,61 @@ func (m *Model) watchResources(gvr schema.GroupVersionResource, namespace string
 						if nameOk && nameIndex >= 0 {
 							m.sortResourcesByColumn(nameIndex)
 						}
+
+						// Sync fleet view backing stores for nodes
+						if gvr.Resource == k8s.ResourceNodes && m.fleetView != nil {
+							m.allResources = append(m.allResources, fields)
+							m.allCreationTimes = append(m.allCreationTimes, ct)
+							m.rawObjects = append(m.rawObjects, *obj)
+							m.fleetView.ClassifyAndCount(m.rawObjectPtrs())
+							m.applyFleetFilter()
+						}
 					}
 				case watch.Modified:
-					if index == -1 {
-						// Resource not found in current list - this can happen during race conditions
-						// (e.g., resource list was reloaded). Just skip this update.
+					// For fleet view, use allIndex for the lookup
+					modifyIndex := index
+					if gvr.Resource == k8s.ResourceNodes && m.fleetView != nil {
+						modifyIndex = allIndex
+					}
+					if modifyIndex == -1 {
 						log.G().Debug("watch modified event for resource not in list, skipping", "name", obj.GetName())
 						continue
 					}
-					m.resources[index] = fields
-					m.creationTimes[index] = ct
+					if index >= 0 {
+						m.resources[index] = fields
+						m.creationTimes[index] = ct
+					}
+
+					// Sync fleet view backing stores for nodes
+					if gvr.Resource == k8s.ResourceNodes && m.fleetView != nil && allIndex >= 0 {
+						m.allResources[allIndex] = fields
+						m.allCreationTimes[allIndex] = ct
+						m.rawObjects[allIndex] = *obj
+						m.applyFleetFilter()
+					}
 				case watch.Deleted:
-					if index == -1 {
-						// Resource not found - already removed or list was reloaded. Skip.
+					// For fleet view, use allIndex
+					deleteFound := index != -1
+					if gvr.Resource == k8s.ResourceNodes && m.fleetView != nil {
+						deleteFound = allIndex != -1
+					}
+					if !deleteFound {
 						log.G().Debug("watch deleted event for resource not in list, skipping", "name", obj.GetName())
 						continue
 					}
-					m.resources = slices.Delete(m.resources, index, index+1)
-					m.creationTimes = slices.Delete(m.creationTimes, index, index+1)
+					if index >= 0 {
+						m.resources = slices.Delete(m.resources, index, index+1)
+						m.creationTimes = slices.Delete(m.creationTimes, index, index+1)
+					}
+
+					// Sync fleet view backing stores for nodes
+					if gvr.Resource == k8s.ResourceNodes && m.fleetView != nil && allIndex >= 0 {
+						m.allResources = slices.Delete(m.allResources, allIndex, allIndex+1)
+						m.allCreationTimes = slices.Delete(m.allCreationTimes, allIndex, allIndex+1)
+						m.rawObjects = slices.Delete(m.rawObjects, allIndex, allIndex+1)
+						m.fleetView.ClassifyAndCount(m.rawObjectPtrs())
+						m.applyFleetFilter()
+					}
 				}
 
 				for !m.tryQueueTableUpdate() {

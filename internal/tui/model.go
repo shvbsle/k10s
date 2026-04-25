@@ -22,6 +22,7 @@ import (
 	"github.com/shvbsle/k10s/internal/tui/cli"
 	"github.com/shvbsle/k10s/internal/tui/resources"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 )
@@ -88,6 +89,7 @@ type Model struct {
 	logLinesChan      <-chan k8s.LogLine // Channel for receiving streamed log lines
 	horizontalOffset  int                // Horizontal scroll offset for table view (in characters)
 	mouse             *MouseHandler      // Encapsulated mouse interaction state and logic
+	fleetView         *FleetView         // GPU-first fleet view state for nodes
 
 	// creationTimes holds the creation timestamp for each resource in
 	// m.resources at the same index. This allows the periodic age-refresh
@@ -97,6 +99,14 @@ type Model struct {
 	// ageColumnIndex caches the position of the "Age" column in the current
 	// resource view so the refresh tick can update it in O(1) per row.
 	ageColumnIndex int
+	// rawObjects holds the unstructured node objects for the fleet view.
+	// Only populated when viewing nodes — used for classification and filtering.
+	rawObjects []unstructured.Unstructured
+	// allResources / allCreationTimes hold the unfiltered data when fleet
+	// view tab filtering is active. m.resources / m.creationTimes hold the
+	// filtered subset that the table renders.
+	allResources     []k8s.OrderedResourceFields
+	allCreationTimes []time.Time
 }
 
 func (m *Model) tryQueueTableUpdate() bool {
@@ -127,6 +137,7 @@ func (e errMsg) Error() string { return e.err.Error() }
 type resourcesLoadedMsg struct {
 	resources     []k8s.OrderedResourceFields
 	creationTimes []time.Time
+	rawObjects    []unstructured.Unstructured // populated for nodes view only
 	gvr           schema.GroupVersionResource
 	namespace     string
 	listOptions   metav1.ListOptions
@@ -357,6 +368,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 		describeViewport:  NewDescribeViewport(),
 		logViewport:       NewLogViewport(),
 		mouse:             NewMouseHandler(),
+		fleetView:         NewFleetView(),
 	}
 }
 
@@ -503,8 +515,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return tea.ClearScreen() }
 
 	case resourcesLoadedMsg:
-		m.resources = msg.resources
-		m.creationTimes = msg.creationTimes
 		m.logLines = nil       // Clear log lines when loading resources
 		m.horizontalOffset = 0 // Reset horizontal scroll on resource change
 
@@ -516,6 +526,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentGVR = msg.gvr
 		m.currentNamespace = msg.namespace
 		m.listOptions = msg.listOptions
+		m.rawObjects = msg.rawObjects
+
+		// For nodes: store the full unfiltered set, classify, then filter
+		if msg.gvr.Resource == k8s.ResourceNodes && m.fleetView != nil {
+			m.allResources = msg.resources
+			m.allCreationTimes = msg.creationTimes
+
+			if len(msg.rawObjects) > 0 {
+				m.fleetView.ClassifyAndCount(m.rawObjectPtrs())
+			}
+
+			m.applyFleetFilter()
+		} else {
+			m.resources = msg.resources
+			m.creationTimes = msg.creationTimes
+			m.allResources = nil
+			m.allCreationTimes = nil
+		}
 
 		// Update key bindings for new resource type
 		m.updateKeysForResourceType()
@@ -1065,6 +1093,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.commandErr = ""
 				m.commandSuccess = ""
 				return m, nil
+			case key == "tab" && m.currentGVR.Resource == k8s.ResourceNodes:
+				m.fleetView.NextTab()
+				m.updateFleetView()
+				return m, nil
+			case key == "shift+tab" && m.currentGVR.Resource == k8s.ResourceNodes:
+				m.fleetView.PrevTab()
+				m.updateFleetView()
+				return m, nil
 			case m.config.KeyBind.For(config.ActionSubmit, key):
 				// Special handling for contexts view
 				if m.currentGVR.Resource == "contexts" {
@@ -1584,8 +1620,9 @@ func (m *Model) renderBreadcrumb(b *strings.Builder) {
 
 // saveToMemento creates and returns a memento containing the current state of the Model.
 func (m *Model) saveToMemento(selectedResourceName, selectedNamespace string) *ModelMemento {
-	return &ModelMemento{
+	memento := &ModelMemento{
 		resources:        m.resources,
+		creationTimes:    m.creationTimes,
 		currentGVR:       m.currentGVR,
 		currentNamespace: m.currentNamespace,
 		listOptions:      m.listOptions,
@@ -1598,6 +1635,15 @@ func (m *Model) saveToMemento(selectedResourceName, selectedNamespace string) *M
 		resourceName: selectedResourceName,
 		namespace:    selectedNamespace,
 	}
+
+	// Save fleet view backing stores when navigating away from nodes
+	if m.currentGVR.Resource == k8s.ResourceNodes {
+		memento.allResources = m.allResources
+		memento.allCreationTimes = m.allCreationTimes
+		memento.rawObjects = m.rawObjects
+	}
+
+	return memento
 }
 
 // restoreFromMemento restores the Model's state from a memento.
@@ -1607,14 +1653,25 @@ func (m *Model) restoreFromMemento(memento *ModelMemento) {
 	}
 
 	m.resources = memento.resources
+	m.creationTimes = memento.creationTimes
 	m.currentGVR = memento.currentGVR
 	m.currentNamespace = memento.currentNamespace
 	m.listOptions = memento.listOptions
 	m.err = memento.err
 	m.logView = memento.logView
 
+	// Restore fleet view backing stores
+	if memento.currentGVR.Resource == k8s.ResourceNodes {
+		m.allResources = memento.allResources
+		m.allCreationTimes = memento.allCreationTimes
+		m.rawObjects = memento.rawObjects
+	}
+
 	// Update key bindings for restored resource type
 	m.updateKeysForResourceType()
+
+	// Re-cache the age column index for the restored resource view
+	m.cacheCreationTimes()
 
 	// Update pagination
 	m.paginator.Page = memento.paginatorPage

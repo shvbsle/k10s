@@ -65,21 +65,42 @@
         "resolver": {
           "path": "{{ .metadata.name }}"
         },
-        "weight": 0.4
+        "weight": 0.28
+      },
+      {
+        "name": "Instance",
+        "resolver": {
+          "func": "instanceType"
+        },
+        "weight": 0.15
+      },
+      {
+        "name": "Compute",
+        "resolver": {
+          "func": "computeType"
+        },
+        "weight": 0.15
+      },
+      {
+        "name": "Usage",
+        "resolver": {
+          "func": "allocBar"
+        },
+        "weight": 0.18
+      },
+      {
+        "name": "Status",
+        "resolver": {
+          "func": "nodeStatus"
+        },
+        "weight": 0.12
       },
       {
         "name": "Age",
         "resolver": {
           "func": "age"
         },
-        "weight": 0.3
-      },
-      {
-        "name": "Node IP",
-        "resolver": {
-          "path": "{{ (index .status.addresses 0).address }}"
-        },
-        "weight": 0.3
+        "weight": 0.12
       }
     ]
   },
