@@ -178,9 +178,18 @@ func (*Model) showCommandError(errMsg string) tea.Cmd {
 	}
 }
 
-// loadResources creates a command that loads the specified resource type using current namespace.
-func (m *Model) loadResources(resource string) tea.Cmd {
-	return m.loadResourcesWithNamespace(metav1.Unversioned.WithResource(resource), m.currentNamespace, metav1.ListOptions{})
+// switchToResource resolves the GVR from server discovery, picks the correct
+// namespace scope, updates model state, and returns a command to fetch the data.
+// This is the single correct way to change the top-level resource view.
+func (m *Model) switchToResource(resource string) tea.Cmd {
+	resolved := m.resolveGVR(resource)
+	m.currentGVR = resolved.GVR
+
+	if !resolved.Namespaced {
+		m.currentNamespace = metav1.NamespaceAll
+	}
+
+	return m.loadResourcesWithNamespace(resolved.GVR, m.currentNamespace, metav1.ListOptions{})
 }
 
 // loadResourcesWithNamespace creates a command that loads the specified resource type from a specific namespace.
@@ -319,8 +328,7 @@ func (m *Model) reconnectCmd() tea.Cmd {
 		}
 
 		log.G().Info("reconnect successful, loading resources")
-		// Execute the loadResources command to get the actual message
-		return m.loadResources(m.currentGVR.Resource)()
+		return m.switchToResource(m.currentGVR.Resource)()
 	}
 }
 
@@ -443,8 +451,10 @@ func (m *Model) drillDown(selectedResource k8s.OrderedResourceFields) tea.Cmd {
 		m.currentNamespace = selectedNamespace
 	}
 
+	resolved := m.resolveGVR(resourceView.DrillDown.Resource)
+
 	return m.loadResourcesWithNamespace(
-		metav1.Unversioned.WithResource(resourceView.DrillDown.Resource),
+		resolved.GVR,
 		m.currentNamespace,
 		metav1.ListOptions{
 			FieldSelector: fieldSelector.String(),

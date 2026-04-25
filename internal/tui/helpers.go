@@ -6,9 +6,46 @@ import (
 	"time"
 
 	"github.com/shvbsle/k10s/internal/k8s"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 var namespacedCache = map[string]bool{}
+
+// resolvedResource holds the result of resolving a resource name against the
+// server's discovery API: the full GVR and whether it's namespace-scoped.
+type resolvedResource struct {
+	GVR        schema.GroupVersionResource
+	Namespaced bool
+}
+
+// resolveGVR looks up a resource name in the server's preferred resources and
+// returns the fully qualified GVR along with its namespace scope. It populates
+// namespacedCache as a side effect so that isNamespaced stays consistent.
+func (m *Model) resolveGVR(resource string) resolvedResource {
+	result := resolvedResource{
+		GVR:        schema.GroupVersionResource{Resource: resource},
+		Namespaced: true,
+	}
+
+	apiResourceLists, err := m.k8sClient.Discovery().ServerPreferredResources()
+	if err != nil && len(apiResourceLists) == 0 {
+		return result
+	}
+
+	for _, apiResourceList := range apiResourceLists {
+		gv, _ := schema.ParseGroupVersion(apiResourceList.GroupVersion)
+		for _, apiResource := range apiResourceList.APIResources {
+			if apiResource.Name == resource {
+				result.GVR = gv.WithResource(apiResource.Name)
+				result.Namespaced = apiResource.Namespaced
+				namespacedCache[resource] = apiResource.Namespaced
+				return result
+			}
+		}
+	}
+
+	return result
+}
 
 // isNamespaced returns whether the resource is cluster or namespace scoped
 func (m *Model) isNamespaced(resource string) bool {
@@ -16,23 +53,8 @@ func (m *Model) isNamespaced(resource string) bool {
 		return supports
 	}
 
-	_, apiResourceLists, err := m.k8sClient.Discovery().ServerGroupsAndResources()
-	if err != nil {
-		// TODO: handle?
-		return true
-	}
-
-	for _, apiResourceList := range apiResourceLists {
-		for _, apiResource := range apiResourceList.APIResources {
-			if apiResource.Name == resource {
-				namespacedCache[resource] = apiResource.Namespaced
-				return namespacedCache[resource]
-			}
-		}
-	}
-
-	// just assume things are namespaced for now
-	return true
+	resolved := m.resolveGVR(resource)
+	return resolved.Namespaced
 }
 
 // getTotalItems returns the total number of items (resources or log lines) to paginate.

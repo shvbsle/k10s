@@ -29,6 +29,10 @@ import (
 // Version is the current version of k10s.
 var Version = "dev"
 
+// DefaultResource is the resource shown when k10s launches.
+// This is the single source of truth for the landing view.
+var DefaultResource = k8s.ResourceNodes
+
 // ViewMode represents the current input mode of the TUI.
 type ViewMode int
 
@@ -233,8 +237,8 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 	ti.CharLimit = 100
 	ti.SetWidth(50)
 
-	// Initial columnMap for pods (default resource type)
-	columns := resources.GetColumns(100, k8s.ResourcePods)
+	// Initial columnMap for nodes — fleet view is the signature landing screen
+	columns := resources.GetColumns(100, DefaultResource)
 
 	// Use a reasonable initial height (will be updated immediately on first WindowSizeMsg)
 	// We use 20 as a temporary value just for initialization
@@ -317,7 +321,7 @@ func New(cfg *config.Config, client *k8s.Client, registry *plugins.Registry) *Mo
 		keys:             keys,
 		updateTableChan:  make(chan struct{}, 1000), // can only queue 1000
 		viewMode:         ViewModeNormal,
-		currentGVR:       schema.GroupVersionResource{Resource: k8s.ResourcePods},
+		currentGVR:       schema.GroupVersionResource{Resource: DefaultResource},
 		clusterInfo:      clusterInfo,
 		currentNamespace: defaultNamespace,
 		commandSuggester: cli.ParseSuggestionTree(
@@ -366,7 +370,7 @@ func (m *Model) Init() tea.Cmd {
 
 	// Only try to load resources if connected
 	if m.isConnected() {
-		cmds = append(cmds, m.loadResources(k8s.ResourcePods))
+		cmds = append(cmds, m.switchToResource(m.currentGVR.Resource))
 	}
 
 	return tea.Batch(cmds...)
@@ -903,7 +907,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if memento != nil {
 					m.restoreFromMemento(memento)
 				} else {
-					return m, m.loadResources(k8s.ResourcePods)
+					return m, m.switchToResource(DefaultResource)
 				}
 				return m, nil
 			case m.config.KeyBind.For(config.ActionHelp, key):
@@ -948,7 +952,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if memento != nil {
 					m.restoreFromMemento(memento)
 				} else {
-					return m, m.loadResources(k8s.ResourcePods)
+					return m, m.switchToResource(DefaultResource)
 				}
 				return m, nil
 			case m.config.KeyBind.For(config.ActionCopySelection, key):
@@ -1132,7 +1136,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if memento != nil {
 					m.restoreFromMemento(memento)
 				} else {
-					return m, m.loadResources(k8s.ResourcePods)
+					return m, m.switchToResource(DefaultResource)
 				}
 				return m, nil
 			case m.config.KeyBind.For(config.ActionToggleFullsreen, key):
