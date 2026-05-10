@@ -1,7 +1,9 @@
 use std::io;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use clap::Parser;
 use crossterm::event::{self, Event, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -11,9 +13,19 @@ use ratatui::prelude::CrosstermBackend;
 use ratatui::Terminal;
 use tokio::sync::mpsc;
 
-use k10s::app::App;
-use k10s::k8s::cluster::ClusterDataSource;
+use k10s::app::{App, DataCommand};
+use k10s::datasource::live::LiveSource;
+use k10s::datasource::mock::{MockConfig, MockSource};
+use k10s::datasource::DataSource;
 use k10s::msg::AppMsg;
+
+#[derive(Parser)]
+#[command(name = "k10s", about = "GPU-aware Kubernetes TUI")]
+struct Cli {
+    /// Run with mock data (e.g., "fleet:10000", "nodes:100")
+    #[arg(long)]
+    mock: Option<String>,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -28,9 +40,18 @@ async fn main() -> Result<()> {
         .with_env_filter("k10s=debug")
         .init();
 
-    let cluster = ClusterDataSource::new().await?;
-    let cluster_context = cluster.context_name().to_string();
-    let k8s_version = cluster
+    let cli = Cli::parse();
+
+    let data_source: Arc<dyn DataSource> = match cli.mock {
+        Some(ref mock_arg) => {
+            let config = MockConfig::parse(mock_arg)?;
+            Arc::new(MockSource::new(config))
+        }
+        None => Arc::new(LiveSource::new().await?),
+    };
+
+    let context_name = data_source.context_name().to_string();
+    let k8s_version = data_source
         .server_version()
         .await
         .unwrap_or_else(|_| "unknown".to_string());
@@ -42,7 +63,7 @@ async fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run(&mut terminal, cluster, cluster_context, k8s_version).await;
+    let result = run(&mut terminal, data_source, context_name, k8s_version).await;
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -57,30 +78,33 @@ async fn main() -> Result<()> {
 
 async fn run(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    cluster: ClusterDataSource,
-    cluster_context: String,
+    data_source: Arc<dyn DataSource>,
+    context_name: String,
     k8s_version: String,
 ) -> Result<()> {
-    let mut app = App::new(cluster_context, k8s_version);
+    let mut app = App::new(context_name, k8s_version);
 
     let (msg_tx, mut msg_rx) = mpsc::channel::<AppMsg>(64);
+    let (cmd_tx, mut cmd_rx) = mpsc::channel::<DataCommand>(16);
 
-    let fetch_tx = msg_tx.clone();
+    // Fleet data fetch loop
+    let fleet_ds = data_source.clone();
+    let fleet_tx = msg_tx.clone();
     tokio::spawn(async move {
         loop {
-            match cluster.fetch_fleet().await {
+            match fleet_ds.fetch_fleet().await {
                 Ok((nodes, health)) => {
-                    if let Err(e) = fetch_tx.send(AppMsg::NodesUpdated(nodes)).await {
+                    if let Err(e) = fleet_tx.send(AppMsg::NodesUpdated(nodes)).await {
                         tracing::warn!("channel send failed: {}", e);
                         break;
                     }
-                    if let Err(e) = fetch_tx.send(AppMsg::HealthUpdate(health)).await {
+                    if let Err(e) = fleet_tx.send(AppMsg::HealthUpdate(health)).await {
                         tracing::warn!("channel send failed: {}", e);
                         break;
                     }
                 }
                 Err(e) => {
-                    if let Err(send_err) = fetch_tx.send(AppMsg::Error(format!("{:#}", e))).await {
+                    if let Err(send_err) = fleet_tx.send(AppMsg::Error(format!("{:#}", e))).await {
                         tracing::warn!("channel send failed: {}", send_err);
                         break;
                     }
@@ -90,10 +114,31 @@ async fn run(
         }
     });
 
+    // Generic resource fetch task — responds to DataCommands
+    let resource_ds = data_source.clone();
+    let resource_tx = msg_tx.clone();
+    tokio::spawn(async move {
+        while let Some(cmd) = cmd_rx.recv().await {
+            match cmd {
+                DataCommand::FetchResources { gvr, namespace } => {
+                    match resource_ds.list_resources(&gvr, namespace.as_deref()).await {
+                        Ok(list) => {
+                            let _ = resource_tx.send(AppMsg::ResourcesUpdated(list)).await;
+                        }
+                        Err(e) => {
+                            let _ = resource_tx.send(AppMsg::Error(format!("{:#}", e))).await;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
     loop {
-        // Drain pending messages first (Issue 6: process data before render)
         while let Ok(msg) = msg_rx.try_recv() {
-            app.handle_msg(msg);
+            if let Some(data_cmd) = app.handle_msg(msg) {
+                let _ = cmd_tx.send(data_cmd).await;
+            }
         }
 
         terminal.draw(|frame| app.render(frame))?;
@@ -101,7 +146,9 @@ async fn run(
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    app.handle_key(key);
+                    if let Some(data_cmd) = app.handle_key(key) {
+                        let _ = cmd_tx.send(data_cmd).await;
+                    }
                 }
             }
         }

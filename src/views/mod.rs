@@ -1,5 +1,6 @@
 pub mod fleet;
 pub mod help;
+pub mod resource;
 
 use crossterm::event::KeyEvent;
 use ratatui::layout::Rect;

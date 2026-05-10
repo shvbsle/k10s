@@ -1,7 +1,10 @@
 pub mod action;
 pub mod app;
+pub mod command;
 pub mod data;
+pub mod datasource;
 pub mod k8s;
 pub mod msg;
+pub mod resource_schema;
 pub mod ui;
 pub mod views;

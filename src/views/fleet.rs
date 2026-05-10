@@ -141,7 +141,9 @@ impl View for FleetView {
             AppMsg::Error(e) => {
                 self.error = Some(e);
             }
-            AppMsg::HealthUpdate(_) => {}
+            AppMsg::HealthUpdate(_)
+            | AppMsg::ResourcesUpdated(_)
+            | AppMsg::DiscoveryComplete(_) => {}
         }
         None
     }
