@@ -5,7 +5,7 @@ use ratatui::Frame;
 
 use crate::app::{AppContext, SourceStatus};
 
-const KITTEN_ART: &[&str] = &[r"/\_/\  /\_/\", r"( o.o )( o.o )", r"> Y <  > Y <"];
+const KITTEN_ART: &[&str] = &[r"/\_/\  /\_/\ ", r"( o.o )( o.o )", r"> Y <  > Y < "];
 
 pub fn header_height() -> u16 {
     4
