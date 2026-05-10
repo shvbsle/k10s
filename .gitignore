@@ -19,8 +19,5 @@
 .DS_Store
 Thumbs.db
 
-# Project documentation (local only)
-CLAUDE.md
-
 # Play/test files
 *.log
