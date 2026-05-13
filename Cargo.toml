@@ -1,23 +1,18 @@
-[package]
-name = "k10s"
-version = "0.1.0"
-edition = "2021"
-description = "GPU-aware Kubernetes terminal dashboard"
-license = "Apache-2.0"
-repository = "https://github.com/shvbsle/k10s"
+[workspace]
+members = [
+    "src/crates/kitty",
+    "src/crates/tui",
+    "src/crates/e2e",
+]
+resolver = "2"
 
-[dependencies]
-ratatui = "0.29"
-crossterm = "0.28"
-tokio = { version = "1", features = ["full"] }
-anyhow = "1"
-kube = { version = "0.98", default-features = false, features = ["runtime", "client", "derive", "rustls-tls"] }
-k8s-openapi = { version = "0.24", features = ["v1_32"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-futures = "0.3"
-async-trait = "0.1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-clap = { version = "4", features = ["derive"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+strip = true
+codegen-units = 1
+panic = "abort"

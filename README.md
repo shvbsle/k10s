@@ -1,21 +1,32 @@
-# k10s: A GPU-Aware Kubernetes Terminal Dashboard
+# k10s: GPU-Aware Kubernetes Tools
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-**k10s** is a GPU-aware Kubernetes TUI. See which GPUs are actually doing work, which are burning money idle, and why your training job's ranks are scattered across the cluster.
+**k10s** makes GPU infrastructure in Kubernetes visible and manageable. It consists of two independent components:
+
+- **kitty** — an agent for GPU cluster operations
+- **tui** — a terminal dashboard for GPU fleet visibility
 
 k9s treats a GPU node like any other node. It has no idea an H100 costs $3/hr and is sitting at 4% utilization. k10s closes that gap.
 
-## Principles
+## Project Structure
 
-- **GPUs and jobs are the atoms, not pods.** The default view is a fleet-level GPU dashboard. Pods are an implementation detail you drill into when needed.
-- **Idle GPUs are loud, not quiet.** Idle nodes sort to the top and glow amber. An unallocated H100 is $3/hr on fire.
-- **Training job awareness.** See 64 ranks as one logical unit, not 64 unrelated pods.
-- **Works without DCGM.** GPU count and workload mapping come from the k8s API. DCGM exporter unlocks live utilization, memory, temp, and power.
+```
+src/crates/
+├── kitty/    # Agent
+├── tui/      # Terminal dashboard
+└── e2e/      # End-to-end tests
+```
 
-## Status
+## Quick Start
 
-Rewriting from scratch in Rust. The Go prototype (v0.4.0) is archived on the `archive/go-v0.4.0` branch.
+```bash
+cargo build                          # Build all crates
+cargo run -p kitty                   # Run the agent
+cargo run -p tui                     # Run the TUI
+cargo run -p e2e                     # Run e2e tests
+cargo build --release                # Optimized release build
+```
 
 ## License
 
