@@ -21,3 +21,8 @@ Thumbs.db
 
 # Play/test files
 *.log
+docs/journal.md
+
+# Temporary: TUI is local-only for iteration
+src/crates/tui/
+deploy/
