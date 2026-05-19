@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "kitty.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "kitty.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kitty.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kitty.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/part-of: k10s
+      annotations:
+        {{- if .Values.prometheus.scrape }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.prometheus.port | quote }}
+        prometheus.io/path: {{ .Values.prometheus.path | quote }}
+        {{- end }}
+    spec:
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      hostPID: {{ .Values.hostPID }}
+      hostNetwork: {{ .Values.hostNetwork }}
+      containers:
+        - name: kitty
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metricsPort }}
+              protocol: TCP
+          env:
+            - name: K10S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: K10S_PROMETHEUS_PORT
+              value: {{ .Values.metricsPort | quote }}
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: "utility"
+            - name: LD_LIBRARY_PATH
+              value: "/host/usr/lib:/host/rocm/lib"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: {{ .Values.healthCheck.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.liveness.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: {{ .Values.healthCheck.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.readiness.periodSeconds }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            privileged: {{ .Values.securityContext.privileged }}
+          volumeMounts:
+            - name: dev
+              mountPath: /dev
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: usr-lib
+              mountPath: /host/usr/lib
+              readOnly: true
+            - name: opt-rocm
+              mountPath: /host/rocm
+              readOnly: true
+      volumes:
+        - name: dev
+          hostPath:
+            path: /dev
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: usr-lib
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu
+        - name: opt-rocm
+          hostPath:
+            path: /opt/rocm/lib

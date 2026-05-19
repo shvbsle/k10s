@@ -1,0 +1,17 @@
+apiVersion: v2
+name: kitty
+description: A Helm chart for the Kitty node metrics agent (k10s)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - metrics
+  - gpu
+  - node-agent
+  - daemonset
+  - prometheus
+home: https://github.com/shvbsle/k10s
+sources:
+  - https://github.com/shvbsle/k10s
+maintainers:
+  - name: shvbsle
