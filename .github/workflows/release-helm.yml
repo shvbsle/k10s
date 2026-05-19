@@ -1,0 +1,70 @@
+name: Release Helm Chart
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  release-chart:
+    name: Package & Publish Helm Chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Extract version from release tag
+        id: version
+        run: |
+          # Strip leading 'v' from tag if present (e.g., v0.2.0 -> 0.2.0)
+          TAG="${GITHUB_REF_NAME#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Update chart version and appVersion
+        run: |
+          sed -i "s/^version:.*/version: ${{ steps.version.outputs.tag }}/" charts/kitty/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.tag }}\"/" charts/kitty/Chart.yaml
+
+      - name: Update image tag in values
+        run: |
+          # Use the git SHA for the image tag (matches docker build workflow)
+          SHORT_SHA="${GITHUB_SHA::7}"
+          sed -i "s/^  tag:.*/  tag: \"${SHORT_SHA}\"/" charts/kitty/values.yaml
+
+      - name: Package Helm chart
+        run: |
+          helm package charts/kitty --destination .helm-packages
+
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Update Helm repo index
+        run: |
+          # Copy new package into gh-pages
+          cp .helm-packages/*.tgz gh-pages/
+          # Rebuild index (merge with existing if present)
+          if [ -f gh-pages/index.yaml ]; then
+            helm repo index gh-pages --url https://shvbsle.github.io/k10s --merge gh-pages/index.yaml
+          else
+            helm repo index gh-pages --url https://shvbsle.github.io/k10s
+          fi
+
+      - name: Push to gh-pages
+        run: |
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Release kitty chart ${{ steps.version.outputs.tag }}"
+          git push

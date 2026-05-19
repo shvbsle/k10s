@@ -1,0 +1,61 @@
+# Default values for kitty
+image:
+  repository: ghcr.io/shvbsle/k10s/kitty
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# Namespace to deploy into (created by the chart)
+namespace: k10s
+
+# Metrics port exposed by the agent
+metricsPort: 9100
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# Tolerations for GPU nodes
+tolerations:
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+  - key: aws.amazon.com/neuron
+    operator: Exists
+    effect: NoSchedule
+  - key: amd.com/gpu
+    operator: Exists
+    effect: NoSchedule
+
+# Prometheus scrape annotations
+prometheus:
+  scrape: true
+  port: "9100"
+  path: "/metrics"
+
+# Health check configuration
+healthCheck:
+  liveness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  readiness:
+    initialDelaySeconds: 3
+    periodSeconds: 5
+
+# Security context
+securityContext:
+  privileged: true
+
+# Host-level access
+hostPID: true
+hostNetwork: true
+
+# ServiceMonitor for Prometheus Operator (optional)
+serviceMonitor:
+  enabled: false
+  interval: 15s
+  labels: {}
