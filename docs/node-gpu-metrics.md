@@ -1,86 +1,153 @@
-# Node-Level GPU Training Metrics
+# k10s Metrics Reference
 
-I ask myself a sharp question: "If I'm a binary running on the node, can I tell if an ML training job is running on the node without looking at any container logs?"
+Kitty is a lightweight node-level agent that exposes GPU, network, and system metrics via a Prometheus-compatible `/metrics` endpoint.
 
-The motivation behind this question is a three step ladder:
-1. Several ML trianing frameworks exists (Pytorch/Jax etc) and they will keep evolving so never build a solution that relies on the highest level of abstraction. 
-2. Any new abstraction that comes up for ML training, at its core, will end up doing some compute on GPUs and then syncing gradients.
-3. It should be sufficient to just look at spikes GPU metrics and networking metrics to re-construct the timeline of training.
+This document covers what kitty emits today, what's planned next, and the full research backlog.
 
-Based on my research, all metrics observable from the node without framework instrumentation.
+---
 
-| Metric Name | How It's Derived | Spikes During | Component | eBPF Alternative? |
-|---|---|---|---|---|
-| gpu-sm-utilization | `nvidia-smi dmon -s u` or DCGM_FI_DEV_GPU_UTIL | COMPUTE | gpu | No (hardware counter) |
-| gpu-memory-utilization | `nvidia-smi dmon -s u` (mem% column) | COMPUTE | gpu | No (hardware counter) |
-| gpu-sm-active | DCGM_FI_PROF_SM_ACTIVE (field 1002) | COMPUTE | gpu | No (hardware counter) |
-| gpu-sm-occupancy | DCGM_FI_PROF_SM_OCCUPANCY (field 1003) | COMPUTE | gpu | No (hardware counter) |
-| gpu-tensor-core-active | DCGM_FI_PROF_PIPE_TENSOR_ACTIVE (field 1004) | COMPUTE | gpu | No (hardware counter) |
-| gpu-fp32-pipe-active | DCGM_FI_PROF_PIPE_FP32_ACTIVE (field 1007) | COMPUTE | gpu | No (hardware counter) |
-| gpu-fp16-pipe-active | DCGM_FI_PROF_PIPE_FP16_ACTIVE (field 1008) | COMPUTE | gpu | No (hardware counter) |
-| gpu-dram-active | DCGM_FI_PROF_DRAM_ACTIVE (field 1005) | COMPUTE | gpu | No (hardware counter) |
-| gpu-pcie-tx-bytes | `nvidia-smi dmon -s t` or DCGM_FI_PROF_PCIE_TX_BYTES (field 1009) | SYNC | gpu | No (hardware counter) |
-| gpu-pcie-rx-bytes | `nvidia-smi dmon -s t` or DCGM_FI_PROF_PCIE_RX_BYTES (field 1010) | SYNC | gpu | No (hardware counter) |
-| gpu-nvlink-tx-bytes | DCGM_FI_PROF_NVLINK_TX_BYTES (field 1011) | SYNC | gpu | No (hardware counter) |
-| gpu-nvlink-rx-bytes | DCGM_FI_PROF_NVLINK_RX_BYTES (field 1012) | SYNC | gpu | No (hardware counter) |
-| gpu-memory-used | `nvidia-smi --query-gpu=memory.used` | COMPUTE (stable) | gpu | No (hardware counter) |
-| gpu-memory-free | `nvidia-smi --query-gpu=memory.free` | COMPUTE (stable) | gpu | No (hardware counter) |
-| gpu-power-draw | `nvidia-smi dmon -s p` | COMPUTE | gpu | No (hardware counter) |
-| gpu-temperature | `nvidia-smi dmon -s p` | COMPUTE | gpu | No (hardware counter) |
-| gpu-compute-app-pid | `nvidia-smi --query-compute-apps=pid,used_gpu_memory` | - | gpu | No |
-| net-interface-tx-bytes | `/sys/class/net/<iface>/statistics/tx_bytes` | SYNC | network | Yes - `tracepoint/net/net_dev_xmit` gives per-packet |
-| net-interface-rx-bytes | `/sys/class/net/<iface>/statistics/rx_bytes` | SYNC | network | Yes - `tracepoint/net/netif_receive_skb` gives per-packet |
-| net-interface-tx-packets | `/sys/class/net/<iface>/statistics/tx_packets` | SYNC | network | Yes - same tracepoint, count events |
-| net-interface-rx-packets | `/sys/class/net/<iface>/statistics/rx_packets` | SYNC | network | Yes - same tracepoint |
-| net-interface-tx-errors | `/sys/class/net/<iface>/statistics/tx_errors` | - (error) | network | Yes - `tracepoint/net/net_dev_xmit` status field |
-| net-interface-rx-drops | `/sys/class/net/<iface>/statistics/rx_dropped` | - (error) | network | Yes - `tracepoint/skb/kfree_skb` with drop reason |
-| net-tcp-send-queue | `ss -tn` Send-Q column (per connection) | SYNC | network | Yes - `kprobe/tcp_sendmsg` gives exact bytes per call |
-| net-tcp-recv-queue | `ss -tn` Recv-Q column (per connection) | SYNC | network | Yes - `kprobe/tcp_recvmsg` gives exact bytes per call |
-| net-tcp-retransmits | `/proc/net/tcp` retransmit counter | - (error) | network | Yes - `tracepoint/tcp/tcp_retransmit_skb` (event-driven, instant) |
-| net-tcp-connection-state | `/proc/<pid>/net/tcp` state field | - | network | Yes - `tracepoint/sock/inet_sock_set_state` (state change events) |
-| net-tcp-connection-count | `nsenter -t <pid> -n ss -tn | wc -l` | - (stable) | network | Yes - track via sock_set_state events |
-| nccl-allreduce-count | NCCL_DEBUG=INFO logs (`AllReduce: opCount N`) | SYNC | network | No (use NCCL Profiler Plugin instead) |
-| nccl-interface-selected | NCCL_DEBUG=INFO logs (`NET/Socket : Using ...`) | - (init) | network | No (log-only) |
-| nccl-profiler-coll-duration | NCCL Profiler Plugin API (startEvent/endEvent) | SYNC | network | No (NCCL plugin API, not kernel) |
-| proc-state | `/proc/<pid>/status` State field (R/S/D) | COMPUTE=R, SYNC=S | cpu | Yes - `tracepoint/sched/sched_switch` (event-driven) |
-| proc-voluntary-ctx-switches | `/proc/<pid>/status` voluntary_ctxt_switches | SYNC | cpu | Yes - `tracepoint/sched/sched_switch` with prev_state |
-| proc-nonvoluntary-ctx-switches | `/proc/<pid>/status` nonvoluntary_ctxt_switches | COMPUTE | cpu | Yes - `tracepoint/sched/sched_switch` preempt flag |
-| proc-threads | `/proc/<pid>/status` Threads field | - (stable) | cpu | No (polling is fine) |
-| proc-cpu-usage | `/proc/<pid>/stat` utime+stime fields | COMPUTE | cpu | Yes - `sched_switch` duration tracking |
-| proc-vm-rss | `/proc/<pid>/status` VmRSS | - (stable) | memory | No (polling is fine) |
-| proc-vm-size | `/proc/<pid>/status` VmSize | - (stable) | memory | No (polling is fine) |
-| proc-io-read-bytes | `/proc/<pid>/io` read_bytes | COMPUTE (data loading) | disk | Yes - `tracepoint/block/block_rq_complete` |
-| proc-io-write-bytes | `/proc/<pid>/io` write_bytes | - (checkpointing) | disk | Yes - same tracepoint |
-| proc-io-syscr | `/proc/<pid>/io` syscr (read syscall count) | COMPUTE (data loading) | disk | Yes - `kprobe/vfs_read` |
-| proc-fd-count | `ls /proc/<pid>/fd | wc -l` | - (stable) | cpu | No (polling is fine) |
-| proc-socket-count | `ls /proc/<pid>/fd -la | grep socket | wc -l` | - (stable) | network | No (polling is fine) |
-| sys-cpu-utilization | `/proc/stat` or `mpstat` | COMPUTE | cpu | Yes - `sched_switch` accounting |
-| sys-memory-available | `/proc/meminfo` MemAvailable | - (stable) | memory | No (polling is fine) |
-| sys-shm-usage | `df /dev/shm` (used vs total) | COMPUTE (dataloader) | memory | No (polling is fine) |
+## Emitted Metrics (v1.0.0)
 
-## eBPF-Only Metrics (not derivable from polling)
+These are live and available at `http://<node-ip>:9100/metrics`.
 
-These require eBPF and have no `/proc` or `/sys` equivalent:
+### GPU Metrics
 
-| Metric Name | How It's Derived (eBPF hook) | Spikes During | Component |
-|---|---|---|---|
-| net-tcp-bytes-per-connection | `kprobe/tcp_sendmsg` + `kprobe/tcp_recvmsg` with sk pointer | SYNC | network |
-| net-tcp-rtt-per-connection | `tracepoint/tcp/tcp_probe` (srtt_us field) | SYNC | network |
-| net-tcp-cwnd-per-connection | `tracepoint/tcp/tcp_probe` (snd_cwnd field) | SYNC | network |
-| net-tcp-retransmit-instant | `tracepoint/tcp/tcp_retransmit_skb` (event, not counter) | - (error) | network |
-| net-tcp-reset-event | `tracepoint/tcp/tcp_receive_reset` | - (error) | network |
-| net-socket-buffer-overflow | `tracepoint/sock/sock_exceed_buf_limit` | SYNC (overload) | network |
-| net-packet-drop-reason | `tracepoint/skb/kfree_skb` with reason enum | - (error) | network |
-| proc-sendmsg-latency | `kprobe/tcp_sendmsg` entry/exit delta | SYNC | network |
-| proc-recvmsg-latency | `kprobe/tcp_recvmsg` entry/exit delta | SYNC | network |
-| proc-futex-wait-duration | `kprobe/do_futex` entry/exit delta | SYNC (GPU wait) | cpu |
-| proc-ioctl-nvidia-calls | `uprobe` on `/dev/nvidia*` ioctl | COMPUTE | gpu |
-| proc-cuda-malloc-events | `uprobe` on `cudaMalloc` in libcudart.so | - (init/OOM) | gpu |
-| proc-cuda-memcpy-bytes | `uprobe` on `cudaMemcpy` in libcudart.so | COMPUTE | gpu |
-| proc-sched-preempt-duration | `tracepoint/sched/sched_switch` off-cpu time per PID | COMPUTE (interference) | cpu |
-| proc-sched-wakeup-latency | `tracepoint/sched/sched_wakeup` to `sched_switch` delta | SYNC (latency) | cpu |
-| sys-oom-kill-event | `tracepoint/oom/oom_kill_process` | - (error) | memory |
-| sys-page-fault-major | `tracepoint/exceptions/page_fault_user` (major only) | COMPUTE (thrashing) | memory |
-| sys-irq-nic-latency | `tracepoint/irq/irq_handler_entry` + exit for NIC IRQ | SYNC | network |
-| sys-softirq-net-duration | `tracepoint/irq/softirq_entry` (NET_RX/NET_TX) | SYNC | network |
+Collected via NVML (NVIDIA Management Library). Each metric is labeled with `gpu_id`, `node`, and `vendor`.
 
+| Metric | Description | Unit |
+|--------|-------------|------|
+| `gpu.memory_free` | Free GPU memory | bytes |
+| `gpu.memory_total` | Total GPU memory | bytes |
+| `gpu.memory_used` | Used GPU memory | bytes |
+| `gpu.memory_utilization` | Memory controller utilization | percent (0-100) |
+| `gpu.sm_utilization` | Streaming multiprocessor utilization | percent (0-100) |
+| `gpu.pcie_rx_bytes` | PCIe receive throughput | bytes |
+| `gpu.pcie_tx_bytes` | PCIe transmit throughput | bytes |
+| `gpu.power_draw_watts` | Current power draw | watts |
+| `gpu.temperature_c` | GPU temperature | celsius |
+
+### Network Metrics
+
+Collected from `/sys/class/net/<iface>/statistics/`. Each metric is labeled with `interface` and `node`.
+
+| Metric | Description | Unit |
+|--------|-------------|------|
+| `net.rx_bytes` | Bytes received | bytes |
+| `net.tx_bytes` | Bytes transmitted | bytes |
+| `net.rx_packets` | Packets received | count |
+| `net.tx_packets` | Packets transmitted | count |
+| `net.rx_dropped` | Receive packets dropped | count |
+| `net.tx_errors` | Transmit errors | count |
+
+### System Metrics
+
+Collected from `/proc/stat` and `/proc/meminfo`. Labeled with `node`.
+
+| Metric | Description | Unit |
+|--------|-------------|------|
+| `sys.cpu_utilization` | Node CPU utilization | ratio (0.0-1.0) |
+| `sys.memory_available_bytes` | Available memory | bytes |
+| `sys.shm_total_bytes` | Total shared memory (/dev/shm) | bytes |
+| `sys.shm_used_bytes` | Used shared memory | bytes |
+
+---
+
+## Planned: GPU Profiling Metrics (in progress)
+
+These require DCGM (Data Center GPU Manager) field queries. Coming in a future release.
+
+| Metric | DCGM Field | Spikes During |
+|--------|------------|---------------|
+| `gpu.sm_active` | DCGM_FI_PROF_SM_ACTIVE (1002) | COMPUTE |
+| `gpu.sm_occupancy` | DCGM_FI_PROF_SM_OCCUPANCY (1003) | COMPUTE |
+| `gpu.tensor_core_active` | DCGM_FI_PROF_PIPE_TENSOR_ACTIVE (1004) | COMPUTE |
+| `gpu.fp32_pipe_active` | DCGM_FI_PROF_PIPE_FP32_ACTIVE (1007) | COMPUTE |
+| `gpu.fp16_pipe_active` | DCGM_FI_PROF_PIPE_FP16_ACTIVE (1008) | COMPUTE |
+| `gpu.dram_active` | DCGM_FI_PROF_DRAM_ACTIVE (1005) | COMPUTE |
+| `gpu.nvlink_tx_bytes` | DCGM_FI_PROF_NVLINK_TX_BYTES (1011) | SYNC |
+| `gpu.nvlink_rx_bytes` | DCGM_FI_PROF_NVLINK_RX_BYTES (1012) | SYNC |
+
+---
+
+## Planned: Process Metrics (in progress)
+
+Per-process metrics for GPU compute apps, collected from `/proc/<pid>/`. Useful for identifying straggler ranks.
+
+| Metric | Source | Spikes During |
+|--------|--------|---------------|
+| `proc.state` | `/proc/<pid>/status` State | COMPUTE=R, SYNC=S |
+| `proc.voluntary_ctx_switches` | `/proc/<pid>/status` | SYNC |
+| `proc.nonvoluntary_ctx_switches` | `/proc/<pid>/status` | COMPUTE |
+| `proc.cpu_usage` | `/proc/<pid>/stat` utime+stime | COMPUTE |
+| `proc.threads` | `/proc/<pid>/status` Threads | stable |
+| `proc.vm_rss` | `/proc/<pid>/status` VmRSS | stable |
+| `proc.io_read_bytes` | `/proc/<pid>/io` read_bytes | data loading |
+| `proc.io_write_bytes` | `/proc/<pid>/io` write_bytes | checkpointing |
+| `proc.fd_count` | `/proc/<pid>/fd` | stable |
+| `proc.socket_count` | `/proc/<pid>/fd` (socket links) | stable |
+
+---
+
+## Planned: Advanced Network Metrics (in progress)
+
+TCP-level metrics for detecting gradient sync bottlenecks.
+
+| Metric | Source | Spikes During |
+|--------|--------|---------------|
+| `net.tcp_send_queue` | `ss -tn` Send-Q | SYNC |
+| `net.tcp_recv_queue` | `ss -tn` Recv-Q | SYNC |
+| `net.tcp_retransmits` | `/proc/net/tcp` | error |
+| `net.tcp_connection_count` | `ss -tn` | stable |
+
+---
+
+## Planned: eBPF Metrics (research / future)
+
+These metrics are only derivable via eBPF. No `/proc` or `/sys` polling equivalent exists. They provide event-driven, per-connection granularity that's impossible to get otherwise.
+
+### Network (eBPF)
+
+| Metric | eBPF Hook | Spikes During |
+|--------|-----------|---------------|
+| `net.tcp_bytes_per_connection` | `kprobe/tcp_sendmsg` + `kprobe/tcp_recvmsg` | SYNC |
+| `net.tcp_rtt_per_connection` | `tracepoint/tcp/tcp_probe` (srtt_us) | SYNC |
+| `net.tcp_cwnd_per_connection` | `tracepoint/tcp/tcp_probe` (snd_cwnd) | SYNC |
+| `net.tcp_retransmit_instant` | `tracepoint/tcp/tcp_retransmit_skb` | error |
+| `net.tcp_reset_event` | `tracepoint/tcp/tcp_receive_reset` | error |
+| `net.socket_buffer_overflow` | `tracepoint/sock/sock_exceed_buf_limit` | SYNC (overload) |
+| `net.packet_drop_reason` | `tracepoint/skb/kfree_skb` | error |
+
+### Process (eBPF)
+
+| Metric | eBPF Hook | Spikes During |
+|--------|-----------|---------------|
+| `proc.sendmsg_latency` | `kprobe/tcp_sendmsg` entry/exit | SYNC |
+| `proc.recvmsg_latency` | `kprobe/tcp_recvmsg` entry/exit | SYNC |
+| `proc.futex_wait_duration` | `kprobe/do_futex` entry/exit | SYNC (GPU wait) |
+| `proc.ioctl_nvidia_calls` | `uprobe` on `/dev/nvidia*` ioctl | COMPUTE |
+| `proc.cuda_malloc_events` | `uprobe` on `cudaMalloc` | init/OOM |
+| `proc.cuda_memcpy_bytes` | `uprobe` on `cudaMemcpy` | COMPUTE |
+| `proc.sched_preempt_duration` | `tracepoint/sched/sched_switch` off-cpu | COMPUTE (interference) |
+| `proc.sched_wakeup_latency` | `tracepoint/sched/sched_wakeup` → switch | SYNC (latency) |
+
+### System (eBPF)
+
+| Metric | eBPF Hook | Spikes During |
+|--------|-----------|---------------|
+| `sys.oom_kill_event` | `tracepoint/oom/oom_kill_process` | error |
+| `sys.page_fault_major` | `tracepoint/exceptions/page_fault_user` | COMPUTE (thrashing) |
+| `sys.irq_nic_latency` | `tracepoint/irq/irq_handler_entry` + exit | SYNC |
+| `sys.softirq_net_duration` | `tracepoint/irq/softirq_entry` (NET_RX/TX) | SYNC |
+
+---
+
+## Design Philosophy
+
+The core insight: you don't need framework-level instrumentation to detect training problems. Any ML training workload, regardless of framework (PyTorch, JAX, etc.), ultimately does compute on GPUs and syncs gradients over the network. By observing GPU utilization patterns and network traffic at the node level, kitty can reconstruct the training timeline and identify:
+
+- **Straggler ranks**: GPUs with lower utilization or longer sync phases
+- **Network bottlenecks**: high retransmits, queue buildup, or asymmetric throughput
+- **Resource waste**: idle GPUs still drawing power
+- **OOM risks**: memory pressure building before a crash
+
+See the [blog post](https://blog.k10s.dev/why-build-k10s/) for more on the motivation.
