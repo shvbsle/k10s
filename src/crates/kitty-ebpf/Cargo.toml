@@ -1,0 +1,15 @@
+[package]
+name = "kitty-ebpf"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "kitty-ebpf"
+path = "src/main.rs"
+
+[dependencies]
+aya-ebpf = "0.1"
+aya-log-ebpf = "0.1"
+
+[profile.release]
+panic = "abort"

@@ -4,6 +4,9 @@ members = [
     "src/crates/tui",
     "src/crates/e2e",
 ]
+exclude = [
+    "src/crates/kitty-ebpf",
+]
 resolver = "2"
 
 [profile.dev]

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, ag-kitty]
+    branches: [main, net-probes]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -21,9 +21,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --check
-      - run: cargo clippy -- -D warnings
+      - run: cargo install bpf-linker
+      - name: Build BPF program
+        run: cd src/crates/kitty-ebpf && cargo +nightly build --release
+      - run: cargo +stable fmt --check
+      - run: cargo +stable clippy -- -D warnings
 
   build-and-test:
     name: Build & Test
@@ -31,7 +37,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
       - uses: Swatinem/rust-cache@v2
+      - run: cargo install bpf-linker
+      - name: Build BPF program
+        run: cd src/crates/kitty-ebpf && cargo +nightly build --release
       - run: cargo build --release -p kitty
       - run: cargo test
 
@@ -39,7 +51,7 @@ jobs:
     name: Docker Build & Push
     needs: [lint, build-and-test]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ag-kitty' || github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/net-probes' || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       packages: write
