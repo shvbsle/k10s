@@ -89,16 +89,35 @@ async fn read_labels(pid: u32) -> Option<BTreeMap<String, String>> {
 
     let mut labels = BTreeMap::new();
     labels.insert("pid".into(), pid.to_string());
+    extract_framework_labels(&vars, &mut labels);
 
-    for var in &vars {
+    Some(labels)
+}
+
+/// Extracts framework-specific labels from the process environment.
+/// Supports multiple training frameworks by checking for known env var patterns.
+/// Extend this function to add support for new frameworks.
+fn extract_framework_labels(vars: &[&str], labels: &mut BTreeMap<String, String>) {
+    for var in vars {
+        // PyTorch DDP / torchrun
         if let Some(rank) = var.strip_prefix("RANK=") {
             labels.insert("rank".into(), rank.to_string());
         } else if let Some(job) = var.strip_prefix("JOB_NAME=") {
             labels.insert("job".into(), job.to_string());
         }
+        // JAX / XLA
+        else if let Some(rank) = var.strip_prefix("PROCESS_INDEX=") {
+            labels
+                .entry("rank".into())
+                .or_insert_with(|| rank.to_string());
+        }
+        // General (Kubeflow TrainJob, MPI)
+        else if let Some(rank) = var.strip_prefix("OMPI_COMM_WORLD_RANK=") {
+            labels
+                .entry("rank".into())
+                .or_insert_with(|| rank.to_string());
+        }
     }
-
-    Some(labels)
 }
 
 async fn parse_tcp_state(pid: u32) -> (HashSet<u16>, u64) {
