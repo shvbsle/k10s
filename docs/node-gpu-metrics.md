@@ -26,18 +26,39 @@ Collected via NVML (NVIDIA Management Library). Each metric is labeled with `gpu
 | `gpu.power_draw_watts` | Current power draw | watts |
 | `gpu.temperature_c` | GPU temperature | celsius |
 
-### Network Metrics
+### Network Metrics (per-process straggler detection)
 
-Collected from `/sys/class/net/<iface>/statistics/`. Each metric is labeled with `interface` and `node`.
+These metrics detect network-induced stragglers in distributed training. They are emitted **per watched process** — only processes with `KITTY_WATCH=1` in their environment are tracked. Labeled with `pid`, `node`, and optionally `rank` and `job` if the training framework sets them.
 
-| Metric | Description | Unit |
-|--------|-------------|------|
-| `net.rx_bytes` | Bytes received | bytes |
-| `net.tx_bytes` | Bytes transmitted | bytes |
-| `net.rx_packets` | Packets received | count |
-| `net.tx_packets` | Packets transmitted | count |
-| `net.rx_dropped` | Receive packets dropped | count |
-| `net.tx_errors` | Transmit errors | count |
+**Requires:** Training pods must set `KITTY_WATCH=1` env var. Kitty discovers PIDs via the GPU collector (NVML), then filters to those with this env var.
+
+#### Procfs metrics (collected every 500ms)
+
+| Metric | Source | Detects |
+|--------|--------|---------|
+| `net.tcp_retransmits` | `/proc/<pid>/net/snmp` RetransSegs | Packet loss |
+| `net.tcp_out_segs` | `/proc/<pid>/net/snmp` OutSegs | Bandwidth throttle (rate collapse) |
+| `net.tcp_tx_queue_bytes` | `/proc/<pid>/net/tcp` tx_queue sum | Bandwidth throttle (queue buildup on recovery) |
+
+These read from the **pod's network namespace** (via `/proc/<pid>/net/`), not the host. This is critical — host-level counters are blind to per-pod network faults on Kubernetes with VPC CNI or similar.
+
+#### eBPF metric (collected every 100ms)
+
+| Metric | Source | Detects |
+|--------|--------|---------|
+| `net.tcp_rtt_us` | kprobe on `tcp_rtt_estimator` (arg1 = raw RTT sample) | Latency |
+
+This captures the **raw, unsmoothed RTT** at the moment each ACK is processed. Unlike SRTT from `/proc/net/tcp` (which uses exponential smoothing and doesn't decay), this value jumps immediately when latency is introduced and drops immediately when removed.
+
+The BPF program reads the socket's local port from `struct sock.__sk_common.skc_num` and emits events to a ring buffer. Userspace matches events to the correct training process by comparing ports against `/proc/<pid>/net/tcp`.
+
+#### Detection matrix
+
+| Network fault | Primary signal | Behavior |
+|---------------|---------------|----------|
+| Latency (e.g., 50ms delay) | `tcp_rtt_us` jumps from ~2ms to ~52ms | Instant response, instant recovery |
+| Packet loss (e.g., 5%) | `tcp_retransmits` rate spikes | Counter climbs during fault, flattens after |
+| Bandwidth throttle (e.g., 100Mbit cap) | `tcp_out_segs` flatlines to zero | Process stops sending, recovers after minutes |
 
 ### System Metrics
 
@@ -88,56 +109,33 @@ Per-process metrics for GPU compute apps, collected from `/proc/<pid>/`. Useful 
 
 ---
 
-## Planned: Advanced Network Metrics (in progress)
+## Implemented: Network Straggler Detection
 
-TCP-level metrics for detecting gradient sync bottlenecks.
+See "Network Metrics" above. Fully implemented and validated against real fault injection on a 4-node DDP training cluster.
 
-| Metric | Source | Spikes During |
-|--------|--------|---------------|
-| `net.tcp_send_queue` | `ss -tn` Send-Q | SYNC |
-| `net.tcp_recv_queue` | `ss -tn` Recv-Q | SYNC |
-| `net.tcp_retransmits` | `/proc/net/tcp` | error |
-| `net.tcp_connection_count` | `ss -tn` | stable |
+---
+
+## Implemented: eBPF RTT Measurement
+
+`net.tcp_rtt_us` is collected via kprobe on `tcp_rtt_estimator`. See "Network Metrics" above for details.
+
+Approaches we tried and rejected during research:
+- `tcp_probe` tracepoint: only gives smoothed SRTT, same decay problem as `/proc/net/tcp`
+- kprobe on `tcp_sendmsg` duration: sendmsg returns before qdisc delay is applied
+- kprobe on `tcp_recvmsg` duration: data already in socket buffer when recvmsg runs
+- SRTT from `/proc/<pid>/net/tcp`: exponential smoothing prevents decay after fault removal
 
 ---
 
 ## Planned: eBPF Metrics (research / future)
 
-These metrics are only derivable via eBPF. No `/proc` or `/sys` polling equivalent exists. They provide event-driven, per-connection granularity that's impossible to get otherwise.
-
-### Network (eBPF)
-
-| Metric | eBPF Hook | Spikes During |
-|--------|-----------|---------------|
-| `net.tcp_bytes_per_connection` | `kprobe/tcp_sendmsg` + `kprobe/tcp_recvmsg` | SYNC |
-| `net.tcp_rtt_per_connection` | `tracepoint/tcp/tcp_probe` (srtt_us) | SYNC |
-| `net.tcp_cwnd_per_connection` | `tracepoint/tcp/tcp_probe` (snd_cwnd) | SYNC |
-| `net.tcp_retransmit_instant` | `tracepoint/tcp/tcp_retransmit_skb` | error |
-| `net.tcp_reset_event` | `tracepoint/tcp/tcp_receive_reset` | error |
-| `net.socket_buffer_overflow` | `tracepoint/sock/sock_exceed_buf_limit` | SYNC (overload) |
-| `net.packet_drop_reason` | `tracepoint/skb/kfree_skb` | error |
-
-### Process (eBPF)
-
-| Metric | eBPF Hook | Spikes During |
-|--------|-----------|---------------|
-| `proc.sendmsg_latency` | `kprobe/tcp_sendmsg` entry/exit | SYNC |
-| `proc.recvmsg_latency` | `kprobe/tcp_recvmsg` entry/exit | SYNC |
-| `proc.futex_wait_duration` | `kprobe/do_futex` entry/exit | SYNC (GPU wait) |
-| `proc.ioctl_nvidia_calls` | `uprobe` on `/dev/nvidia*` ioctl | COMPUTE |
-| `proc.cuda_malloc_events` | `uprobe` on `cudaMalloc` | init/OOM |
-| `proc.cuda_memcpy_bytes` | `uprobe` on `cudaMemcpy` | COMPUTE |
-| `proc.sched_preempt_duration` | `tracepoint/sched/sched_switch` off-cpu | COMPUTE (interference) |
-| `proc.sched_wakeup_latency` | `tracepoint/sched/sched_wakeup` → switch | SYNC (latency) |
-
-### System (eBPF)
-
-| Metric | eBPF Hook | Spikes During |
-|--------|-----------|---------------|
-| `sys.oom_kill_event` | `tracepoint/oom/oom_kill_process` | error |
-| `sys.page_fault_major` | `tracepoint/exceptions/page_fault_user` | COMPUTE (thrashing) |
-| `sys.irq_nic_latency` | `tracepoint/irq/irq_handler_entry` + exit | SYNC |
-| `sys.softirq_net_duration` | `tracepoint/irq/softirq_entry` (NET_RX/TX) | SYNC |
+| Metric | eBPF Hook | Use case |
+|--------|-----------|----------|
+| `proc.futex_wait_duration` | `kprobe/do_futex` entry/exit | GPU synchronization wait |
+| `proc.sched_preempt_duration` | `tracepoint/sched/sched_switch` off-cpu | CPU interference detection |
+| `proc.sched_wakeup_latency` | `tracepoint/sched/sched_wakeup` → switch | Scheduling latency |
+| `sys.oom_kill_event` | `tracepoint/oom/oom_kill_process` | OOM detection |
+| `net.packet_drop_reason` | `tracepoint/skb/kfree_skb` | Network error diagnosis |
 
 ---
 

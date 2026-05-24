@@ -1,3 +1,4 @@
+pub mod ebpf;
 pub mod gpu;
 pub mod network;
 pub mod process;

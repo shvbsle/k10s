@@ -6,7 +6,7 @@ use crate::error::{KittyError, Result};
 #[derive(Debug, Clone)]
 pub struct Config {
     pub collectors: CollectorsConfig,
-    pub network_interfaces: Vec<String>,
+    pub state_refresh_interval: Duration,
     pub prometheus_port: u16,
     pub node_name: String,
 }
@@ -17,6 +17,7 @@ pub struct CollectorsConfig {
     pub network: CollectorConfig,
     pub process: CollectorConfig,
     pub system: CollectorConfig,
+    pub ebpf: CollectorConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -31,9 +32,11 @@ impl Config {
             .or_else(|_| env::var("HOSTNAME"))
             .unwrap_or_else(|_| "unknown".into());
 
+        let state_refresh_ms = parse_u64("KITTY_STATE_REFRESH_MS", 5000)?;
+
         Ok(Self {
             collectors: CollectorsConfig::from_env()?,
-            network_interfaces: parse_csv("KITTY_NETWORK_INTERFACES"),
+            state_refresh_interval: Duration::from_millis(state_refresh_ms),
             prometheus_port: parse_u16("K10S_PROMETHEUS_PORT", 9100)?,
             node_name,
         })
@@ -47,6 +50,7 @@ impl CollectorsConfig {
             network: CollectorConfig::from_env("KITTY_NETWORK", true, 500)?,
             process: CollectorConfig::from_env("KITTY_PROCESS", true, 2000)?,
             system: CollectorConfig::from_env("KITTY_SYSTEM", true, 5000)?,
+            ebpf: CollectorConfig::from_env("KITTY_EBPF", true, 100)?,
         })
     }
 }
@@ -100,12 +104,5 @@ fn parse_u16(key: &str, default: u16) -> Result<u16> {
             .map_err(|e| KittyError::Config(format!("{key}={val} is not a valid port: {e}"))),
         Err(env::VarError::NotPresent) => Ok(default),
         Err(e) => Err(KittyError::Config(format!("{key}: {e}"))),
-    }
-}
-
-fn parse_csv(key: &str) -> Vec<String> {
-    match env::var(key) {
-        Ok(val) if !val.is_empty() => val.split(',').map(|s| s.trim().to_string()).collect(),
-        _ => Vec::new(),
     }
 }

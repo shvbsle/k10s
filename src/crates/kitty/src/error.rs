@@ -13,6 +13,9 @@ pub enum KittyError {
 
     #[error("config: {0}")]
     Config(String),
+
+    #[error("ebpf: {0}")]
+    Ebpf(String),
 }
 
 pub type Result<T> = result::Result<T, KittyError>;

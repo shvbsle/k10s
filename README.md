@@ -1,13 +1,15 @@
 # k10s: GPU-Aware Kubernetes Toolkit
 
+> **Alpha.** APIs will change rapidly. Consider [becoming a contributor](https://discord.gg/rngaJustFD) to shape the beta.
+
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-1.25%2B-326ce5.svg)](https://kubernetes.io/)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/rngaJustFD)
 
 
 **k10s** is two things:
-- **k10s** - (kittens) a TUI that shows the ML training jobs in your cluster and surfaces ranks that are misbehaving.
 - **kitty** - a Daemonset that lives on your kubernetes cluster that collects node-level GPU + Network telemetry
+- **k10s** - (kittens) a tui/cli that shows the ML training jobs in your cluster and surfaces ranks that are misbehaving.
 
 The outcomes will be:
 1. Your idle / misbehaving GPUs are LOUD so you know if you are burning $$
@@ -15,9 +17,7 @@ The outcomes will be:
 3. You see a performance profile of your custom CUDA Kernels
 3. You don't have to leave your terminal
 
-These are problems that I have and thats the main reason to build this. If you also have these problems join our discord and consider becoming a contributor and shape this tool: [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/rngaJustFD)
-
-Other separate motivations for building k10s on the dev log: [why build k10s?](https://blog.k10s.dev/why-build-k10s/)
+These are the problems that I have and thats the main reason to build this. If you also have these problems join our discord and consider becoming a contributor and shaping this tool: [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/rngaJustFD)
 
 ## Installation
 
@@ -31,24 +31,68 @@ helm install kitty k10s/kitty
 
 This creates the `k10s` namespace and deploys the kitty daemonset with GPU node tolerations out of the box. See all available values: `helm show values k10s/kitty`
 
+Add one env var to your training pods and these metrics appear at `:9100/metrics`, labeled by rank:
+
+```yaml
+env:
+  - name: KITTY_WATCH
+    value: "1"
+```
+
+## Straggler Detection
+
+### Network
+
+| Status | Problem | Metric | What you'll see |
+|:------:|---------|--------|-----------------|
+| ✅ | Network latency | `net.tcp_rtt_us` | Jumps from ~2ms to 50ms+ on the affected rank |
+| ✅ | Packet loss | `net.tcp_retransmits` | Counter climbs on the affected rank |
+| ✅ | Bandwidth throttle | `net.tcp_out_segs` + `net.tcp_tx_queue_bytes` | Segment rate drops to zero (stall), tx_queue spikes on recovery |
+| planned | NCCL transport downgrade | | |
+| planned | Cross-rack routing | | |
+
+### GPU / Compute
+
+| Status | Problem |
+|:------:|---------|
+| planned | Power throttling (SW cap) |
+| planned | Memory fragmentation |
+| planned | Thermal throttling |
+| planned | ECC errors |
+
+### CPU / Data Pipeline
+
+| Status | Problem |
+|:------:|---------|
+| planned | DataLoader starvation |
+| planned | CPU contention |
+| planned | Memory pressure |
+
+
+See [Metrics Reference](docs/node-gpu-metrics.md) for the full list and how each metric works under the hood.
+
+---
 
 ## Verify
 
 ```bash
 kubectl get pods -n k10s
 kubectl port-forward -n k10s daemonset/kitty 9100:9100
-curl http://localhost:9100/metrics
+curl -s http://localhost:9100/metrics | grep net.tcp_rtt_us
 ```
+
+If your training pods have `KITTY_WATCH=1` set, you should see per-rank RTT values. If not, you'll still see GPU metrics (`gpu.sm_utilization`, `gpu.power_draw_watts`, etc.) for all GPUs on the node.
 
 ## Project Structure
 
 ```
 src/crates/
-├── kitty/    # daemonset agent
-├── tui/      # tui duh
-└── e2e/      # End-to-end tests
+├── kitty/         # daemonset agent (GPU, network, eBPF collectors)
+├── kitty-ebpf/    # BPF kernel program (tcp_rtt_estimator kprobe)
+├── tui/           # tui duh
+└── e2e/           # End-to-end tests
 charts/
-└── kitty/    # Helm chart
+└── kitty/         # Helm chart
 ```
 
 ## Documentation
